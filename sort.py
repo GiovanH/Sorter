@@ -4,6 +4,7 @@ import argparse
 import shutil
 import os
 import traceback
+import errno
 from PIL import ImageTk, Image
 
 """
@@ -21,12 +22,23 @@ Don't have to press enter to submit.
 itoa = list('abcdefghijklmnopqrstuvwxyz')
 atoi = {itoa[i]: i for i in range(0, len(itoa))}
 
+FILL = tkinter.N + tkinter.S + tkinter.E + tkinter.W
+
 
 def generateContextKey(context):
     return "\n".join(
         ["{}: {}".format(itoa[i], context[i].split('\\')[-2])
          for i in range(0, len(context))]
     )
+
+
+def filemove(src, dst):
+    print("{} -> {}".format(src, dst))
+    try:
+        shutil.move(src, dst)
+    except shutil.Error as e:
+        print(e.errno, errno.EEXIST, e.errno == errno.EEXIST)
+        traceback.print_exc()
 
 
 class MainWindow():
@@ -52,6 +64,7 @@ class MainWindow():
 
         # Initialize images
         self.nextImage()
+        self.imageUpdate()
 
     def reloadDirContext(self, rootpath):
         self.context = glob(rootpath + '/*/')
@@ -59,15 +72,26 @@ class MainWindow():
     def initwindow(self, main):
         # Create a tk window.
 
+        # Allow smart grid resizing for the canvas cell
+        top = self.main.winfo_toplevel()
+        top.rowconfigure(0, weight=1)
+        top.columnconfigure(1, weight=1)
+
         # canvas for image
-        self.canvas = tkinter.Canvas(main)
+        self.canvas = tkinter.Canvas(main)  # , bg="#AA0001"
         # self.canvas.grid(row=0, column=0)
         # self.btn_skip.grid(row=1, column=0)
-        self.canvas.grid(row=0, column=1, rowspan=5)
+        self.canvas.grid(row=0, column=1, rowspan=5, sticky=FILL)
+        # self.canvas.grid(row=0, column=0, rowspan=5, columnspan=2, sticky=FILL)
 
         # set first image on canvas, an ImageTk.PhotoImage
         self.image_on_canvas = self.canvas.create_image(
-            128, 128, anchor=tkinter.CENTER, image=self.filelist[self.image_index][1])
+            0, 0, anchor=tkinter.N + tkinter.W,
+            image=self.filelist[self.image_index][1])
+
+        # Backer
+        # self.canvas_gui = tkinter.Canvas(main)
+        # self.canvas_gui.grid(row=1, column=0, rowspan=4, sticky=FILL)
 
         # Entry text field
         self.entry = tkinter.Entry(main)
@@ -80,14 +104,20 @@ class MainWindow():
         self.lab_curfile.grid(row=1, column=0)
 
         # context keys
-        self.str_context = tkinter.StringVar(value=generateContextKey(self.context))
+        self.str_context = tkinter.StringVar(
+            value=generateContextKey(self.context))
         self.lab_context = tkinter.Message(
             main, anchor=tkinter.W, textvariable=self.str_context)
         self.lab_context.grid(row=2, column=0)
 
         # button to skip image
-        self.btn_skip = tkinter.Button(main, text="Skip", command=self.nextImage)
-        self.btn_skip.grid(row=3, column=0)
+        self.btn_skip = tkinter.Button(
+            main, text="Skip", command=self.nextImage)
+        self.btn_skip.grid(row=3, column=0, sticky=tkinter.E)
+
+        self.btn_back = tkinter.Button(
+            main, text="Prev", command=self.prevImage)
+        self.btn_back.grid(row=3, column=0, sticky=tkinter.W)
 
     def validatepath(self, rootpath):
         # Check for the unsorted directory.
@@ -105,13 +135,13 @@ class MainWindow():
         except KeyError:
             # os.mkdir(entry)
             # self.reloadDirContext(self.rootpath)
-            self.str_curfile.set("Invalid integer: {}".format(self.entry.get()))
+            self.str_curfile.set(
+                "Invalid integer: {}".format(self.entry.get()))
             return
             # choice = self.context[atoi[self.entry.get()]]
         # extension = oldFileName.split('.')[-1]
         dst = choice
-        print({"SRC": oldFileName, "DST": dst})
-        shutil.move(oldFileName, dst)
+        filemove(oldFileName, dst)
 
         # Clear field
         self.entry.delete(0, last=tkinter.END)
@@ -137,8 +167,16 @@ class MainWindow():
     def nextImage(self):
         # Queue the next image
         self.image_index += 1
+        self.imageUpdate()
 
-        # return to first image if we should
+    def prevImage(self):
+        self.image_index -= 1
+        self.imageUpdate()
+
+    def imageUpdate(self):
+        # Wraparound
+        if self.image_index < 0:
+            self.image_index = len(self.filelist)
         if self.image_index >= len(self.filelist):
             self.reloadImages(self.rootpath)
             self.image_index = 0
@@ -146,13 +184,23 @@ class MainWindow():
         if len(self.filelist) == 0:
             self.str_curfile.set("No more images found!")
         else:
-            # change image on canvas
-            self.canvas.itemconfig(self.image_on_canvas,
-                                   image=self.filelist[self.image_index][1])
-            # self.canvas.coords(self.image_on_canvas, self.my_images[self.image_index].width()/2, self.my_images[self.image_index].height()/2)
-            # self.canvas.grid(row=0, column=0)
+            img = self.filelist[self.image_index][1]
 
-            # Label image
+            maxwidth = self.canvas.winfo_width()
+            maxheight = self.canvas.winfo_height()
+            imageIsTooBig = img.width() > maxwidth or img.height() > maxheight
+            if imageIsTooBig: 
+                print("Image {} is too big. [{}x{} image in {}x{} canvas]".format(
+                    self.filelist[self.image_index][0],
+                    img.width(),
+                    img.height(),
+                    maxwidth,
+                    maxheight
+                ))
+
+            self.canvas.itemconfig(self.image_on_canvas,
+                                   image=img)
+
             prettyname = self.filelist[self.image_index][0].split("\\")[-1]
             # prettyname = self.filelist[self.image_index][0]
             self.str_curfile.set(prettyname)
