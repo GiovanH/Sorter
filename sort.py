@@ -87,14 +87,14 @@ class MainWindow():
 
         # Allow smart grid resizing for the canvas cell
         top = self.main.winfo_toplevel()
-        top.rowconfigure(0, weight=1)
+        top.rowconfigure(1, weight=1)
         top.columnconfigure(1, weight=1)
 
         # canvas for image
         self.canvas = tk.Canvas(main)  # , bg="#AA0001"
         # self.canvas.grid(row=0, column=0)
         # self.btn_skip.grid(row=1, column=0)
-        self.canvas.grid(row=0, column=1, rowspan=5, sticky=FILL)
+        self.canvas.grid(row=1, column=1, rowspan=4, sticky=FILL)
         # self.canvas.grid(row=0, column=0, rowspan=5, columnspan=2, sticky=FILL)
 
         # set first image on canvas, an ImageTk.PhotoImage
@@ -114,7 +114,7 @@ class MainWindow():
         # current filename label
         self.str_curfile = tk.StringVar(value="NaN")
         self.lab_curfile = tk.Label(main, textvariable=self.str_curfile)
-        self.lab_curfile.grid(row=1, column=0)
+        self.lab_curfile.grid(row=0, column=1)
 
         # context keys
         self.str_context = tk.StringVar(
