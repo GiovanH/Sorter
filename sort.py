@@ -1,4 +1,4 @@
-import tkinter
+import tkinter as tk
 from glob import glob
 import argparse
 import shutil
@@ -6,6 +6,7 @@ import os
 import traceback
 import errno
 from PIL import ImageTk, Image
+from makemap import makeMappings
 
 """
 TODO:
@@ -19,16 +20,27 @@ Better display for choices. Align left.
 Don't have to press enter to submit.
 """
 
-itoa = list('abcdefghijklmnopqrstuvwxyz')
-atoi = {itoa[i]: i for i in range(0, len(itoa))}
-
-FILL = tkinter.N + tkinter.S + tkinter.E + tkinter.W
+FILL = tk.N + tk.S + tk.E + tk.W
 
 
-def generateContextKey(context):
+def imageSize(filename):
+    try:
+        w, h = Image.open(filename).size
+        return w * h
+    except FileNotFoundError:
+        print("WARNING! File not found: ", filename)
+        return 0
+    except OSError:
+        print("WARNING! OS error with file: ", filename)
+        return 0
+
+
+def generateContextKey(context, map_):
+    map_prime = {map_[key]: key for key in map_.keys()}
+    print(map_, map_prime)
     return "\n".join(
-        ["{}: {}".format(itoa[i], context[i].split('\\')[-2])
-         for i in range(0, len(context))]
+        ["{}:\t{}".format(map_prime[val], val.split('\\')[-2])
+         for val in context]
     )
 
 
@@ -68,6 +80,7 @@ class MainWindow():
 
     def reloadDirContext(self, rootpath):
         self.context = glob(rootpath + '/*/')
+        self.keymap = makeMappings(self.context)
 
     def initwindow(self, main):
         # Create a tk window.
@@ -78,7 +91,7 @@ class MainWindow():
         top.columnconfigure(1, weight=1)
 
         # canvas for image
-        self.canvas = tkinter.Canvas(main)  # , bg="#AA0001"
+        self.canvas = tk.Canvas(main)  # , bg="#AA0001"
         # self.canvas.grid(row=0, column=0)
         # self.btn_skip.grid(row=1, column=0)
         self.canvas.grid(row=0, column=1, rowspan=5, sticky=FILL)
@@ -86,38 +99,38 @@ class MainWindow():
 
         # set first image on canvas, an ImageTk.PhotoImage
         self.image_on_canvas = self.canvas.create_image(
-            0, 0, anchor=tkinter.N + tkinter.W,
+            0, 0, anchor=tk.N + tk.W,
             image=self.filelist[self.image_index][1])
 
         # Backer
-        # self.canvas_gui = tkinter.Canvas(main)
+        # self.canvas_gui = tk.Canvas(main)
         # self.canvas_gui.grid(row=1, column=0, rowspan=4, sticky=FILL)
 
         # Entry text field
-        self.entry = tkinter.Entry(main)
+        self.entry = tk.Entry(main)
         self.entry.bind("<Return>", self.submit)
         self.entry.grid(row=4, column=0)
 
         # current filename label
-        self.str_curfile = tkinter.StringVar(value="NaN")
-        self.lab_curfile = tkinter.Label(main, textvariable=self.str_curfile)
+        self.str_curfile = tk.StringVar(value="NaN")
+        self.lab_curfile = tk.Label(main, textvariable=self.str_curfile)
         self.lab_curfile.grid(row=1, column=0)
 
         # context keys
-        self.str_context = tkinter.StringVar(
-            value=generateContextKey(self.context))
-        self.lab_context = tkinter.Message(
-            main, anchor=tkinter.W, textvariable=self.str_context)
+        self.str_context = tk.StringVar(
+            value=generateContextKey(self.context, self.keymap))
+        self.lab_context = tk.Message(
+            main, anchor=tk.W, textvariable=self.str_context)
         self.lab_context.grid(row=2, column=0)
 
         # button to skip image
-        self.btn_skip = tkinter.Button(
+        self.btn_skip = tk.Button(
             main, text="Skip", command=self.nextImage)
-        self.btn_skip.grid(row=3, column=0, sticky=tkinter.E)
+        self.btn_skip.grid(row=3, column=0, sticky=tk.E)
 
-        self.btn_back = tkinter.Button(
+        self.btn_back = tk.Button(
             main, text="Prev", command=self.prevImage)
-        self.btn_back.grid(row=3, column=0, sticky=tkinter.W)
+        self.btn_back.grid(row=3, column=0, sticky=tk.W)
 
     def validatepath(self, rootpath):
         # Check for the unsorted directory.
@@ -131,12 +144,13 @@ class MainWindow():
             self.nextImage()
             return
         try:
-            choice = self.context[atoi[entry]]
+            print(entry, self.keymap)
+            choice = self.keymap[entry]
         except KeyError:
             # os.mkdir(entry)
             # self.reloadDirContext(self.rootpath)
             self.str_curfile.set(
-                "Invalid integer: {}".format(self.entry.get()))
+                "Invalid key: {}".format(self.entry.get()))
             return
             # choice = self.context[atoi[self.entry.get()]]
         # extension = oldFileName.split('.')[-1]
@@ -144,27 +158,27 @@ class MainWindow():
         filemove(oldFileName, dst)
 
         # Clear field
-        self.entry.delete(0, last=tkinter.END)
+        self.entry.delete(0, last=tk.END)
         self.nextImage()
 
     def reloadImages(self, fileglob):
         # Initialize a filelist of [path, image] pairs.
         filepaths = glob("{}\\unsorted/*.*".format(self.rootpath))
-        self.filelist = [[d, None] for d in filepaths]
 
-        # Create tkinter image objects and pair with paths
-        for entry in self.filelist:
-            filename = entry[0]
+        filepaths = sorted(filepaths, key=imageSize)
+        self.filelist = []
+
+        # Create tk image objects and pair with paths
+        for filename in filepaths:
             try:
                 print(filename)
                 image = ImageTk.PhotoImage(Image.open(filename))
-                print(image)
-                # tkinter.PhotoImage(file=filename)
-                entry[1] = image
-            except tkinter._tkinter.TclError as e:
-                print("[tkinter error] Bad image: " + filename)
+                # tk.PhotoImage(file=filename)
+                self.filelist.append([filename, image])
+            except tk._tk.TclError as e:
+                print("[tk error] Bad image: " + filename)
                 traceback.print_exc()
-                self.filelist.remove(entry)
+                # self.filelist.remove(entry)
 
     def nextImage(self):
         # Queue the next image
@@ -187,10 +201,9 @@ class MainWindow():
             self.str_curfile.set("No more images found!")
         else:
             filename = self.filelist[self.image_index][0]
+            print(self.filelist[self.image_index])
             print(filename)
-            img = ImageTk.PhotoImage(Image.open(filename))
-            # img = self.filelist[self.image_index][1]
-            print(img)
+            img = self.filelist[self.image_index][1]
 
             maxwidth = self.canvas.winfo_width()
             maxheight = self.canvas.winfo_height()
@@ -220,6 +233,6 @@ ap.add_argument("--confident", action="store_true",
 args = ap.parse_args()
 
 
-Tk = tkinter.Tk()
+Tk = tk.Tk()
 MainWindow(Tk, args.root, args.confident)
 Tk.mainloop()
