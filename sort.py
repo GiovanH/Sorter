@@ -24,7 +24,7 @@ atoi = {itoa[i]: i for i in range(0, len(itoa))}
 
 def generateContextKey(context):
     return "\n".join(
-        ["{}: {}".format(itoa[i], context[i])
+        ["{}: {}".format(itoa[i], context[i].split('\\')[-2])
          for i in range(0, len(context))]
     )
 
@@ -60,34 +60,34 @@ class MainWindow():
         # Create a tk window.
 
         # canvas for image
-        self.canvas = tkinter.Canvas(main, width=256, height=256)
+        self.canvas = tkinter.Canvas(main)
         # self.canvas.grid(row=0, column=0)
         # self.btn_skip.grid(row=1, column=0)
-        self.canvas.pack()
+        self.canvas.grid(row=0, column=1, rowspan=5)
 
-        # set first image on canvas
+        # set first image on canvas, an ImageTk.PhotoImage
         self.image_on_canvas = self.canvas.create_image(
             128, 128, anchor=tkinter.CENTER, image=self.filelist[self.image_index][1])
 
         # Entry text field
         self.entry = tkinter.Entry(main)
         self.entry.bind("<Return>", self.submit)
-        self.entry.pack()
+        self.entry.grid(row=4, column=0)
 
         # current filename label
         self.str_curfile = tkinter.StringVar(value="NaN")
         self.lab_curfile = tkinter.Label(main, textvariable=self.str_curfile)
-        self.lab_curfile.pack()
+        self.lab_curfile.grid(row=1, column=0)
 
         # context keys
         self.str_context = tkinter.StringVar(value=generateContextKey(self.context))
         self.lab_context = tkinter.Message(
             main, anchor=tkinter.W, textvariable=self.str_context)
-        self.lab_context.pack()
+        self.lab_context.grid(row=2, column=0)
 
         # button to skip image
         self.btn_skip = tkinter.Button(main, text="Skip", command=self.nextImage)
-        self.btn_skip.pack()
+        self.btn_skip.grid(row=3, column=0)
 
     def validatepath(self, rootpath):
         # Check for the unsorted directory.
@@ -97,6 +97,9 @@ class MainWindow():
     def submit(self, event):
         oldFileName = self.filelist[self.image_index][0]
         entry = self.entry.get()
+        if entry == "":
+            self.nextImage()
+            return
         try:
             choice = self.context[atoi[entry]]
         except KeyError:
@@ -147,12 +150,11 @@ class MainWindow():
             self.canvas.itemconfig(self.image_on_canvas,
                                    image=self.filelist[self.image_index][1])
             # self.canvas.coords(self.image_on_canvas, self.my_images[self.image_index].width()/2, self.my_images[self.image_index].height()/2)
-            self.canvas.pack(fill="both", expand=True)
+            # self.canvas.grid(row=0, column=0)
 
             # Label image
-            # prettyname = "...\\" + \
-            #     "\\".join(self.filelist[self.image_index][0].split("\\")[-2:])
-            prettyname = self.filelist[self.image_index][0]
+            prettyname = self.filelist[self.image_index][0].split("\\")[-1]
+            # prettyname = self.filelist[self.image_index][0]
             self.str_curfile.set(prettyname)
 
 
