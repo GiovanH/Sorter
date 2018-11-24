@@ -156,7 +156,9 @@ class MainWindow():
         for entry in self.filelist:
             filename = entry[0]
             try:
+                print(filename)
                 image = ImageTk.PhotoImage(Image.open(filename))
+                print(image)
                 # tkinter.PhotoImage(file=filename)
                 entry[1] = image
             except tkinter._tkinter.TclError as e:
@@ -184,7 +186,11 @@ class MainWindow():
         if len(self.filelist) == 0:
             self.str_curfile.set("No more images found!")
         else:
-            img = self.filelist[self.image_index][1]
+            filename = self.filelist[self.image_index][0]
+            print(filename)
+            img = ImageTk.PhotoImage(Image.open(filename))
+            # img = self.filelist[self.image_index][1]
+            print(img)
 
             maxwidth = self.canvas.winfo_width()
             maxheight = self.canvas.winfo_height()
