@@ -19,20 +19,12 @@ Maybe a landscape layout to maximize screen space?
 FILL = tk.N + tk.S + tk.E + tk.W
 WFILL = tk.E + tk.W
 
+ALWAYS_RESIZE = True
+
 
 def makeMappings(lst):
     vals = [i.split('\\')[-2].lower() for i in lst]
-    # done = False
-    # extent = 0
-    # while not done:
-    #     extent += 1
-    #     prefixes = [var[0:extent] for var in vals]
-    #     if len(set(prefixes)) == len(prefixes):
-    #         done = True
-
-    # map_prime = {prefixes[i]: lst[i] for i in range(0, len(lst))}
     map_prime = {vals[i]: lst[i] for i in range(0, len(lst))}
-    print(map_prime)
     return map_prime
 
 
@@ -57,6 +49,9 @@ def generateContextKey(context, map_):
 
 
 def filemove(src, dst):
+    usubdir = dst + "unsorted\\"
+    if os.path.exists(usubdir):
+        dst = usubdir
     print("{} -> {}".format(src, dst))
     try:
         shutil.move(src, dst)
@@ -67,13 +62,12 @@ def filemove(src, dst):
 
 class MainWindow():
 
-    def __init__(self, Tk, rootpath, confident):
+    def __init__(self, Tk, rootpath):
 
         self.image_index = -1
 
         # Store arguments.
         self.main = Tk
-        self.confident = confident
 
         # Validate arguments
         self.generatePaths(rootpath)
@@ -90,11 +84,26 @@ class MainWindow():
         self.nextImage()
         self.imageUpdate()
 
+    def openDir(self):
+        from tkinter import filedialog
+        self.generatePaths(filedialog.askdirectory().replace("/", "\\"))
+
+        # Initialize data
+        self.str_context = tk.StringVar()
+        self.reloadDirContext()
+        self.reloadImages()
+
+        # Initialize images
+        self.nextImage()
+
     def initwindow(self, main):
 
         columns = 2
         inOrderList = [1 for i in range(0, columns)]
         height = 0
+
+        # Adjust image with size of window
+        # main.bind('<Configure>', lambda event: self.imageUpdate())
 
         def rowInOrder(col):
             nonlocal height
@@ -114,26 +123,25 @@ class MainWindow():
         # self.canvas_gui = tk.Canvas(main)
         # self.canvas_gui.grid(row=1, column=0, rowspan=4, sticky=FILL)
 
-        # context keys
-        self.lab_context_label = tk.Label(main, text="Folder IDs:").grid(row=rowInOrder(1), column=1)
-
-        # self.str_context = tk.StringVar()
-        self.lab_context = tk.Message(main, anchor=tk.W, textvariable=self.str_context)
-        self.lab_context.grid(row=rowInOrder(1), column=1)
-
         # Navigation buttons
-        self.lab_context_label = tk.Label(main, text="Navigation").grid(row=rowInOrder(1), sticky=WFILL, column=1)
+        self.lab_context_label = tk.Label(main, text="Navigation").grid(
+            row=rowInOrder(1), sticky=WFILL, column=1)
         btnrow = rowInOrder(1)
-        self.btn_skip = tk.Button(main, text="Skip", takefocus=False, command=self.nextImage)
+        self.btn_skip = tk.Button(
+            main, text="Skip", takefocus=False, command=self.nextImage)
         self.btn_skip.grid(row=btnrow, column=1, sticky=tk.E)
 
         self.btn_ref = tk.Button(main, takefocus=False, text="Refresh", command=(
-            lambda: self.reloadDirContext()))
+            lambda: self.imageUpdate() and self.reloadDirContext()))
         self.btn_ref.grid(row=btnrow, column=1)
 
-        self.btn_back = tk.Button(main, takefocus=False, text="Prev", command=self.prevImage)
+        self.btn_back = tk.Button(
+            main, takefocus=False, text="Prev", command=self.prevImage)
         self.btn_back.grid(row=btnrow, column=1, sticky=tk.W)
-        
+
+        self.btn_ref = tk.Button(main, takefocus=False, text="Open", command=self.openDir)
+        self.btn_ref.grid(row=rowInOrder(1), column=1)
+
         def validateCommand(event):
             GOOD = "#AAFFAA"
             BAD = "#FFAAAA"
@@ -142,24 +150,36 @@ class MainWindow():
                 event.widget.configure(bg=NORMAL)
             else:
                 try:
-                    self.str_curfile.set(self.getBestFolder(event.widget.get()))
+                    self.str_curfile.set(
+                        self.getBestFolder(event.widget.get()))
                     event.widget.configure(bg=GOOD)
                 except OSError:
                     self.labelFileName()
                     event.widget.configure(bg=BAD)
 
         # Entry text field
-        self.lab_context_label = tk.Label(main, text="Move to folder ID:").grid(row=rowInOrder(1), column=1)
+        self.lab_context_label = tk.Label(
+            main, text="Move to folder ID:").grid(row=rowInOrder(1), column=1)
         self.entry = tk.Entry(main)
         self.entry.bind("<Return>", self.submit)
         self.entry.bind("<KeyRelease>", validateCommand)
         self.entry.grid(row=rowInOrder(1), column=1)
 
         # New folder button
-        self.lab_newfolder = tk.Label(main, text="Move to new folder:").grid(row=rowInOrder(1), column=1)
+        self.lab_newfolder = tk.Label(main, text="Move to new folder:").grid(
+            row=rowInOrder(1), column=1)
         self.entry_newfolder = tk.Entry(main)
         self.entry_newfolder.bind("<Return>", self.newfolder)
         self.entry_newfolder.grid(row=rowInOrder(1), column=1)
+
+        # context keys
+        self.lab_context_label = tk.Label(
+            main, text="Folder IDs:").grid(row=rowInOrder(1), column=1)
+
+        # self.str_context = tk.StringVar()
+        self.lab_context = tk.Message(
+            main, anchor=tk.W, textvariable=self.str_context)
+        self.lab_context.grid(row=rowInOrder(1), column=1)
 
         # Canvas stuff
         # canvas for image
@@ -173,8 +193,7 @@ class MainWindow():
 
         # set first image on canvas, an ImageTk.PhotoImage
         self.image_on_canvas = self.canvas.create_image(
-            0, 0, anchor=tk.N + tk.W,
-            image=self.filelist[self.image_index][1])
+            0, 0, anchor=tk.N + tk.W)
 
     def getBestFolder(self, entry, fast=False):
         try:
@@ -182,7 +201,7 @@ class MainWindow():
         except KeyError:
             if entry != "":
                 keys = list(self.keymap.keys())
-                # There is not a perfect mapping 
+                # There is not a perfect mapping
                 matches = [k.find(entry) for k in keys]
                 if matches.count(0) == 1:
                     return self.keymap[keys[matches.index(0)]]
@@ -195,7 +214,6 @@ class MainWindow():
             self.nextImage()
             return
         try:
-            print(entry, self.keymap)
             choice = self.getBestFolder(entry)
         except EnvironmentError:
             traceback.print_exc()
@@ -212,7 +230,7 @@ class MainWindow():
         # Clear field
         event.widget.delete(0, last=tk.END)
         self.nextImage()
-    
+
     def newfolder(self, event):
         newfoldername = event.widget.get()
         oldFileName = self.filelist[self.image_index][0]
@@ -231,14 +249,15 @@ class MainWindow():
         event.widget.delete(0, last=tk.END)
 
     def generatePaths(self, rootpath):
-        if os.path.exists("{}unsorted".format(rootpath)):
-            self.imageglob = "{}unsorted\\*.*".format(rootpath)
+        print("Generating paths for: {}".format(rootpath))
+        if os.path.exists("{}\\unsorted".format(rootpath)):
+            self.imageglob = "{}\\unsorted\\*.*".format(rootpath)
             # Path to add new folders in:
-            self.contextglobs = [rootpath + '*\\', rootpath + '..\\']
+            self.contextglobs = [rootpath + '\\*\\', rootpath + '\\..\\']
         else:
-            self.imageglob = "{}*.*".format(rootpath)
-            self.contextglobs = [rootpath + '..\\*\\', rootpath + '..\\']
-            rootpath += "..\\"
+            self.imageglob = "{}\\*.*".format(rootpath)
+            self.contextglobs = [rootpath + '\\..\\*\\', rootpath + '\\..\\']
+            rootpath += "\\..\\"
         self.rootpath = rootpath
 
     def reloadDirContext(self):
@@ -258,7 +277,8 @@ class MainWindow():
         for filename in filepaths:
             try:
                 print(filename)
-                image = ImageTk.PhotoImage(Image.open(filename))
+                pilimage = Image.open(filename)
+                image = ImageTk.PhotoImage(pilimage)
                 # tk.PhotoImage(file=filename)
                 self.filelist.append([filename, image])
             except OSError as e:
@@ -279,6 +299,10 @@ class MainWindow():
         self.imageUpdate()
 
     def imageUpdate(self):
+        # Let window load
+        maxwidth = self.canvas.winfo_width()
+        maxheight = self.canvas.winfo_height()
+
         # Wraparound
         if self.image_index < 0:
             self.image_index = len(self.filelist)
@@ -290,25 +314,26 @@ class MainWindow():
             self.str_curfile.set("No more images found!")
         else:
             filename = self.filelist[self.image_index][0]
-            print(self.filelist[self.image_index])
             print(filename)
-            img = self.filelist[self.image_index][1]
+            pilimg = Image.open(filename)
+            self.curimg = ImageTk.PhotoImage(pilimg)
 
-            maxwidth = self.canvas.winfo_width()
-            maxheight = self.canvas.winfo_height()
-            imageIsTooBig = img.width() > maxwidth or img.height() > maxheight
-            if imageIsTooBig: 
+            width = self.curimg.width()
+            height = self.curimg.height()
+            imageIsTooBig = width > maxwidth or height > maxheight
+            if (imageIsTooBig or ALWAYS_RESIZE) and not maxwidth == maxheight == 1:
                 print("Image {} is too big. [{}x{} image in {}x{} canvas]".format(
-                    self.filelist[self.image_index][0],
-                    img.width(),
-                    img.height(),
+                    filename,
+                    width,
+                    height,
                     maxwidth,
                     maxheight
                 ))
+                ratio = min(maxwidth / width, maxheight / height)
+                pilimg = Image.open(filename).resize((int(width * ratio), int(height * ratio)), Image.ANTIALIAS)
+                self.curimg = ImageTk.PhotoImage(pilimg)
 
-            self.canvas.itemconfig(self.image_on_canvas,
-                                   image=img)
-
+            self.canvas.itemconfig(self.image_on_canvas, image=self.curimg)
             self.labelFileName()
 
     def labelFileName(self):
@@ -320,11 +345,9 @@ class MainWindow():
 ap = argparse.ArgumentParser()
 ap.add_argument("-r", "--root", required=True,
                 help="Root folder. Should contain folders, one of which is named unsorted.")
-ap.add_argument("--confident", action="store_true",
-                help="In the case of rename conflicts, move the conflict out of the way.")
 args = ap.parse_args()
 
 
 Tk = tk.Tk()
-MainWindow(Tk, args.root, args.confident)
+MainWindow(Tk, args.root)
 Tk.mainloop()
