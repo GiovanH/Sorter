@@ -69,7 +69,7 @@ class MainWindow():
 
     def __init__(self, Tk, rootpath, confident):
 
-        self.image_index = 0
+        self.image_index = -1
 
         # Store arguments.
         self.main = Tk
@@ -145,9 +145,10 @@ class MainWindow():
             GOOD = "#AAFFAA"
             NORMAL = "#FFFFFF"
             try:
-                print(self.getBestFolder(event.widget.get()))
+                self.str_curfile.set(self.getBestFolder(event.widget.get()))
                 event.widget.configure(bg=GOOD)
             except OSError:
+                self.labelFileName()
                 event.widget.configure(bg=NORMAL)
 
         # Entry text field
@@ -182,18 +183,17 @@ class MainWindow():
         try:
             return self.keymap[entry]
         except KeyError:
-            keys = list(self.keymap.keys())
-            # There is not a perfect mapping 
-            matches = [k.find(entry) for k in keys]
-            if matches.count(0) == 1:
-                return self.keymap[keys[matches.index(0)]]
-            else:
-                raise EnvironmentError("Ambiguous folder selected")
+            if entry != "":
+                keys = list(self.keymap.keys())
+                # There is not a perfect mapping 
+                matches = [k.find(entry) for k in keys]
+                if matches.count(0) == 1:
+                    return self.keymap[keys[matches.index(0)]]
+            raise EnvironmentError("Ambiguous folder selected")
 
     def validatepath(self, rootpath):
         # Check for the unsorted directory.
-        p = "{}/unsorted".format(rootpath)
-        assert(os.path.exists(p))
+        pass
 
     def submit(self, event):
         oldFileName = self.filelist[self.image_index][0]
@@ -239,7 +239,11 @@ class MainWindow():
 
     def reloadImages(self, fileglob):
         # Initialize a filelist of [path, image] pairs.
-        filepaths = glob("{}\\unsorted/*.*".format(self.rootpath))
+        path = "{}\\unsorted".format(self.rootpath)
+        if not os.path.exists(path):
+            print("No unsorted folder found, falling back.")
+            path = self.rootpath
+        filepaths = glob("{}\\*.*".format(path))
 
         filepaths = sorted(filepaths, key=imageSize)
         self.filelist = []
@@ -296,9 +300,12 @@ class MainWindow():
             self.canvas.itemconfig(self.image_on_canvas,
                                    image=img)
 
-            prettyname = self.filelist[self.image_index][0].split("\\")[-1]
-            # prettyname = self.filelist[self.image_index][0]
-            self.str_curfile.set(prettyname)
+            self.labelFileName()
+
+    def labelFileName(self):
+        prettyname = self.filelist[self.image_index][0].split("\\")[-1]
+        # prettyname = self.filelist[self.image_index][0]
+        self.str_curfile.set(prettyname)
 
 
 ap = argparse.ArgumentParser()
