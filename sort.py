@@ -21,7 +21,7 @@ FILL = tk.N + tk.S + tk.E + tk.W
 WFILL = tk.E + tk.W
 
 ALWAYS_RESIZE = True
-
+IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif"]
 
 def makeMappings(lst):
     vals = [i.split('\\')[-2].lower() for i in lst]
@@ -255,11 +255,11 @@ class MainWindow():
     def generatePaths(self, rootpath):
         print("Generating paths for: {}".format(rootpath))
         if os.path.exists("{}\\unsorted".format(rootpath)):
-            self.imageglob = "{}\\unsorted\\*.*".format(rootpath)
+            self.imageglobs = ["{}\\unsorted\\*.{}".format(rootpath, ext) for ext in IMAGEEXTS]
             # Path to add new folders in:
             self.contextglobs = [rootpath + '\\*\\', rootpath + '\\..\\']
         else:
-            self.imageglob = "{}\\*.*".format(rootpath)
+            self.imageglobs = ["{}\\*.{}".format(rootpath, ext) for ext in IMAGEEXTS]
             self.contextglobs = [rootpath + '\\..\\*\\', rootpath + '\\..\\']
             rootpath += "\\..\\"
         self.rootpath = rootpath
@@ -271,7 +271,7 @@ class MainWindow():
         self.str_context.set(generateContextKey(self.context, self.keymap))
 
     def reloadImages(self):
-        self.filepaths = sorted(glob(self.imageglob), key=imageSize)
+        self.filepaths = sorted(sum([glob(a) for a in self.imageglobs], []), key=imageSize)
         # self.filelist = []
 
         # # Create tk image objects and pair with paths
