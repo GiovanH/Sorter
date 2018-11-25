@@ -74,15 +74,14 @@ class MainWindow():
         # Store arguments.
         self.main = Tk
         self.confident = confident
-        self.rootpath = rootpath
 
         # Validate arguments
-        self.validatepath(rootpath)
+        self.generatePaths(rootpath)
 
         # Initialize data
         self.str_context = tk.StringVar()
-        self.reloadDirContext(rootpath)
-        self.reloadImages(rootpath)
+        self.reloadDirContext()
+        self.reloadImages()
 
         # Initialize window
         self.initwindow(Tk)
@@ -90,12 +89,6 @@ class MainWindow():
         # Initialize images
         self.nextImage()
         self.imageUpdate()
-
-    def reloadDirContext(self, rootpath):
-        self.context = glob(rootpath + '/*/')
-        self.context.append(rootpath + '/../')
-        self.keymap = makeMappings(self.context)
-        self.str_context.set(generateContextKey(self.context, self.keymap))
 
     def initwindow(self, main):
 
@@ -122,20 +115,20 @@ class MainWindow():
         # self.canvas_gui.grid(row=1, column=0, rowspan=4, sticky=FILL)
 
         # context keys
-        self.lab_context_label = tk.Message(main, text="Folder IDs:").grid(row=rowInOrder(1), column=1)
+        self.lab_context_label = tk.Label(main, text="Folder IDs:").grid(row=rowInOrder(1), column=1)
 
         # self.str_context = tk.StringVar()
         self.lab_context = tk.Message(main, anchor=tk.W, textvariable=self.str_context)
         self.lab_context.grid(row=rowInOrder(1), column=1)
 
         # Navigation buttons
-        self.lab_context_label = tk.Message(main, text="Navigation").grid(row=rowInOrder(1), sticky=WFILL, column=1)
+        self.lab_context_label = tk.Label(main, text="Navigation").grid(row=rowInOrder(1), sticky=WFILL, column=1)
         btnrow = rowInOrder(1)
         self.btn_skip = tk.Button(main, text="Skip", takefocus=False, command=self.nextImage)
         self.btn_skip.grid(row=btnrow, column=1, sticky=tk.E)
 
         self.btn_ref = tk.Button(main, takefocus=False, text="Refresh", command=(
-            lambda: self.reloadDirContext(self.rootpath)))
+            lambda: self.reloadDirContext()))
         self.btn_ref.grid(row=btnrow, column=1)
 
         self.btn_back = tk.Button(main, takefocus=False, text="Prev", command=self.prevImage)
@@ -143,23 +136,27 @@ class MainWindow():
         
         def validateCommand(event):
             GOOD = "#AAFFAA"
+            BAD = "#FFAAAA"
             NORMAL = "#FFFFFF"
-            try:
-                self.str_curfile.set(self.getBestFolder(event.widget.get()))
-                event.widget.configure(bg=GOOD)
-            except OSError:
-                self.labelFileName()
+            if event.widget.get() == "":
                 event.widget.configure(bg=NORMAL)
+            else:
+                try:
+                    self.str_curfile.set(self.getBestFolder(event.widget.get()))
+                    event.widget.configure(bg=GOOD)
+                except OSError:
+                    self.labelFileName()
+                    event.widget.configure(bg=BAD)
 
         # Entry text field
-        self.lab_context_label = tk.Message(main, text="Move to folder ID:").grid(row=rowInOrder(1), column=1)
+        self.lab_context_label = tk.Label(main, text="Move to folder ID:").grid(row=rowInOrder(1), column=1)
         self.entry = tk.Entry(main)
         self.entry.bind("<Return>", self.submit)
         self.entry.bind("<KeyRelease>", validateCommand)
         self.entry.grid(row=rowInOrder(1), column=1)
 
         # New folder button
-        self.lab_newfolder = tk.Message(main, text="Move to new folder:", bg="#696969").grid(row=rowInOrder(1), column=1)
+        self.lab_newfolder = tk.Label(main, text="Move to new folder:").grid(row=rowInOrder(1), column=1)
         self.entry_newfolder = tk.Entry(main)
         self.entry_newfolder.bind("<Return>", self.newfolder)
         self.entry_newfolder.grid(row=rowInOrder(1), column=1)
@@ -179,7 +176,7 @@ class MainWindow():
             0, 0, anchor=tk.N + tk.W,
             image=self.filelist[self.image_index][1])
 
-    def getBestFolder(self, entry):
+    def getBestFolder(self, entry, fast=False):
         try:
             return self.keymap[entry]
         except KeyError:
@@ -190,10 +187,6 @@ class MainWindow():
                 if matches.count(0) == 1:
                     return self.keymap[keys[matches.index(0)]]
             raise EnvironmentError("Ambiguous folder selected")
-
-    def validatepath(self, rootpath):
-        # Check for the unsorted directory.
-        pass
 
     def submit(self, event):
         oldFileName = self.filelist[self.image_index][0]
@@ -228,7 +221,7 @@ class MainWindow():
         try:
             newdir = "{}/{}".format(self.rootpath, newfoldername)
             os.mkdir(newdir)
-            self.reloadDirContext(self.rootpath)
+            self.reloadDirContext()
             filemove(oldFileName, newdir)
             self.nextImage()
         except Exception:
@@ -237,13 +230,26 @@ class MainWindow():
         # Clear field
         event.widget.delete(0, last=tk.END)
 
-    def reloadImages(self, fileglob):
+    def generatePaths(self, rootpath):
+        if os.path.exists("{}unsorted".format(rootpath)):
+            self.imageglob = "{}unsorted\\*.*".format(rootpath)
+            # Path to add new folders in:
+            self.contextglobs = [rootpath + '*\\', rootpath + '..\\']
+        else:
+            self.imageglob = "{}*.*".format(rootpath)
+            self.contextglobs = [rootpath + '..\\*\\', rootpath + '..\\']
+            rootpath += "..\\"
+        self.rootpath = rootpath
+
+    def reloadDirContext(self):
+        self.context = sum([glob(a) for a in self.contextglobs], [])
+        print(self.context)
+        self.keymap = makeMappings(self.context)
+        self.str_context.set(generateContextKey(self.context, self.keymap))
+
+    def reloadImages(self):
         # Initialize a filelist of [path, image] pairs.
-        path = "{}\\unsorted".format(self.rootpath)
-        if not os.path.exists(path):
-            print("No unsorted folder found, falling back.")
-            path = self.rootpath
-        filepaths = glob("{}\\*.*".format(path))
+        filepaths = glob(self.imageglob)
 
         filepaths = sorted(filepaths, key=imageSize)
         self.filelist = []
@@ -255,6 +261,9 @@ class MainWindow():
                 image = ImageTk.PhotoImage(Image.open(filename))
                 # tk.PhotoImage(file=filename)
                 self.filelist.append([filename, image])
+            except OSError as e:
+                print("[OS error] Bad image: " + filename)
+                traceback.print_exc()
             except tk._tk.TclError as e:
                 print("[tk error] Bad image: " + filename)
                 traceback.print_exc()
@@ -274,7 +283,7 @@ class MainWindow():
         if self.image_index < 0:
             self.image_index = len(self.filelist)
         if self.image_index >= len(self.filelist):
-            self.reloadImages(self.rootpath)
+            self.reloadImages()
             self.image_index = 0
 
         if len(self.filelist) == 0:
