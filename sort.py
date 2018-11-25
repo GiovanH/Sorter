@@ -6,6 +6,7 @@ import os
 import traceback
 import errno
 from PIL import ImageTk, Image
+from tkinter import filedialog
 
 """
 TODO:
@@ -65,15 +66,17 @@ class MainWindow():
     def __init__(self, Tk, rootpath):
 
         self.image_index = -1
+        self.str_context = tk.StringVar()
 
         # Store arguments.
         self.main = Tk
 
+        if rootpath is None:
+            rootpath = filedialog.askdirectory().replace("/", "\\")
         # Validate arguments
         self.generatePaths(rootpath)
 
         # Initialize data
-        self.str_context = tk.StringVar()
         self.reloadDirContext()
         self.reloadImages()
 
@@ -85,7 +88,6 @@ class MainWindow():
         self.imageUpdate()
 
     def openDir(self):
-        from tkinter import filedialog
         self.generatePaths(filedialog.askdirectory().replace("/", "\\"))
 
         # Initialize data
@@ -352,7 +354,7 @@ class MainWindow():
 
 
 ap = argparse.ArgumentParser()
-ap.add_argument("-r", "--root", required=True,
+ap.add_argument("-r", "--root",
                 help="Root folder. Should contain folders, one of which is named unsorted.")
 args = ap.parse_args()
 
