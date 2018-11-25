@@ -40,15 +40,6 @@ def imageSize(filename):
         print("WARNING! OS error with file: ", filename)
         return 0
 
-
-def generateContextKey(context, map_):
-    map_prime = {map_[key]: key for key in map_.keys()}
-    return "\n".join(
-        ["{}".format(map_prime[val][0:15])
-         for val in context]
-    )
-
-
 def filemove(src, dst):
     usubdir = dst + "unsorted\\"
     if os.path.exists(usubdir):
@@ -79,16 +70,25 @@ class MainWindow():
         # Validate arguments
         self.generatePaths(rootpath)
 
+        # Initialize window
+        self.initwindow(Tk)
+
         # Initialize data
         self.reloadDirContext()
         self.reloadImages()
 
-        # Initialize window
-        self.initwindow(Tk)
-
         # Initialize images
         self.nextImage()
         self.imageUpdate()
+
+    def generateContextKey(self, context, map_):
+        self.listbox_context.configure(state=tk.NORMAL)
+        self.listbox_context.delete(0, self.listbox_context.size())
+        map_prime = {map_[key]: key for key in map_.keys()}
+        for val in context:
+            self.listbox_context.insert(
+                tk.END, "{}".format(map_prime[val][0:15]) )
+        self.listbox_context.configure(state=tk.DISABLED)
 
     def openDir(self):
         self.generatePaths(filedialog.askdirectory().replace("/", "\\"))
@@ -103,8 +103,10 @@ class MainWindow():
     def initwindow(self, main):
 
         columns = 2
-        inOrderList = [1 for i in range(0, columns)]
+        inOrderList = [2 for i in range(0, columns)]
         height = 0
+
+        top = self.main.winfo_toplevel()
 
         # Adjust image with size of window
         # main.bind('<Configure>', lambda event: self.imageUpdate())
@@ -181,9 +183,10 @@ class MainWindow():
             main, text="Folder IDs:").grid(row=rowInOrder(1), column=1)
 
         # self.str_context = tk.StringVar()
-        self.lab_context = tk.Message(
-            main, anchor=tk.W, textvariable=self.str_context)
-        self.lab_context.grid(row=rowInOrder(1), column=1)
+        contextRow = rowInOrder(1)
+        self.listbox_context = tk.Listbox(main, state=tk.DISABLED, takefocus=False, disabledforeground=self.lab_curfile.cget('fg'), relief=tk.GROOVE)
+        self.listbox_context.grid(row=contextRow, column=1, sticky=FILL)
+        top.rowconfigure(contextRow, weight=1)
 
         # Canvas stuff
         # canvas for image
@@ -191,8 +194,7 @@ class MainWindow():
         self.canvas.grid(row=1, column=0, rowspan=height, sticky=FILL)
 
         # Allow smart grid resizing for the canvas cell
-        top = self.main.winfo_toplevel()
-        top.rowconfigure(1, weight=1)
+        #top.rowconfigure(1, weight=1)
         top.columnconfigure(0, weight=1)
 
         # set first image on canvas, an ImageTk.PhotoImage
@@ -268,7 +270,7 @@ class MainWindow():
         self.context = sum([glob(a) for a in self.contextglobs], [])
         print(self.context)
         self.keymap = makeMappings(self.context)
-        self.str_context.set(generateContextKey(self.context, self.keymap))
+        self.generateContextKey(self.context, self.keymap)
 
     def reloadImages(self):
         self.filepaths = sorted(sum([glob(a) for a in self.imageglobs], []), key=imageSize)
