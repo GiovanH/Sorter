@@ -89,7 +89,6 @@ class MainWindow():
         self.generatePaths(filedialog.askdirectory().replace("/", "\\"))
 
         # Initialize data
-        self.str_context = tk.StringVar()
         self.reloadDirContext()
         self.reloadImages()
 
@@ -208,7 +207,7 @@ class MainWindow():
             raise EnvironmentError("Ambiguous folder selected")
 
     def submit(self, event):
-        oldFileName = self.filelist[self.image_index][0]
+        oldFileName = self.filepaths[self.image_index]
         entry = event.widget.get()
         if entry == "":
             self.nextImage()
@@ -233,7 +232,7 @@ class MainWindow():
 
     def newfolder(self, event):
         newfoldername = event.widget.get()
-        oldFileName = self.filelist[self.image_index][0]
+        oldFileName = self.filepaths[self.image_index]
         if newfoldername == "":
             return
         try:
@@ -267,26 +266,23 @@ class MainWindow():
         self.str_context.set(generateContextKey(self.context, self.keymap))
 
     def reloadImages(self):
-        # Initialize a filelist of [path, image] pairs.
-        filepaths = glob(self.imageglob)
+        self.filepaths = sorted(glob(self.imageglob), key=imageSize)
+        # self.filelist = []
 
-        filepaths = sorted(filepaths, key=imageSize)
-        self.filelist = []
-
-        # Create tk image objects and pair with paths
-        for filename in filepaths:
-            try:
-                print(filename)
-                pilimage = Image.open(filename)
-                image = ImageTk.PhotoImage(pilimage)
-                # tk.PhotoImage(file=filename)
-                self.filelist.append([filename, image])
-            except OSError as e:
-                print("[OS error] Bad image: " + filename)
-                traceback.print_exc()
-            except tk._tk.TclError as e:
-                print("[tk error] Bad image: " + filename)
-                traceback.print_exc()
+        # # Create tk image objects and pair with paths
+        # for filename in filepaths:
+        #     try:
+        #         print(filename)
+        #         pilimage = Image.open(filename)
+        #         image = ImageTk.PhotoImage(pilimage)
+        #         # tk.PhotoImage(file=filename)
+        # #         self.filelist.append([filename, image])
+        #     except OSError as e:
+        #         print("[OS error] Bad image: " + filename)
+        #         traceback.print_exc()
+        #     except tk._tk.TclError as e:
+        #         print("[tk error] Bad image: " + filename)
+        #         traceback.print_exc()
                 # self.filelist.remove(entry)
 
     def nextImage(self):
@@ -305,18 +301,31 @@ class MainWindow():
 
         # Wraparound
         if self.image_index < 0:
-            self.image_index = len(self.filelist)
-        if self.image_index >= len(self.filelist):
+            self.image_index = len(self.filepaths)
+        if self.image_index >= len(self.filepaths):
             self.reloadImages()
             self.image_index = 0
 
-        if len(self.filelist) == 0:
+        if len(self.filepaths) == 0:
             self.str_curfile.set("No more images found!")
         else:
-            filename = self.filelist[self.image_index][0]
+            filename = self.filepaths[self.image_index]
             print(filename)
-            pilimg = Image.open(filename)
-            self.curimg = ImageTk.PhotoImage(pilimg)
+            try:
+                pilimg = Image.open(filename)
+                self.curimg = ImageTk.PhotoImage(pilimg)
+            except OSError as e:
+                print("[OS error] Bad image: " + filename)
+                traceback.print_exc()
+                self.filepaths.remove(filename)
+                self.imageUpdate()
+                return
+            except tk._tk.TclError as e:
+                print("[tk error] Bad image: " + filename)
+                traceback.print_exc()
+                self.filepaths.remove(filename)
+                self.imageUpdate()
+                return 
 
             width = self.curimg.width()
             height = self.curimg.height()
@@ -337,7 +346,7 @@ class MainWindow():
             self.labelFileName()
 
     def labelFileName(self):
-        prettyname = self.filelist[self.image_index][0].split("\\")[-1]
+        prettyname = self.filepaths[self.image_index].split("\\")[-1]
         # prettyname = self.filelist[self.image_index][0]
         self.str_curfile.set(prettyname)
 
