@@ -73,6 +73,9 @@ class MainWindow():
 
         if rootpath is None:
             rootpath = filedialog.askdirectory().replace("/", "\\")
+
+        if rootpath == '':
+            os.abort()
         # Validate arguments
         self.generatePaths(rootpath)
 

@@ -8,4 +8,4 @@ sort: sort.exe
 rename: rename.exe
 
 %.exe: %.py
-	pyinstaller $< -F
+	pyinstaller $< -F -w
