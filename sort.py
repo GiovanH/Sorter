@@ -23,10 +23,25 @@ WFILL = tk.E + tk.W
 ALWAYS_RESIZE = True
 IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif"]
 
+
 def makeMappings(lst):
     vals = [i.split('\\')[-2].lower() for i in lst]
     map_prime = {vals[i]: lst[i] for i in range(0, len(lst))}
     return map_prime
+
+
+def doFileRename(oldFileName, newFileName, confident=False):
+    try:
+        print("{} -> {}".format(oldFileName, newFileName))
+        os.rename(oldFileName, newFileName)
+    except FileExistsError as e:
+        if confident:
+            print("Renaming conflicting file", e.filename2)
+            "DISPLACED_"
+            bits = e.filename2.split("\\")
+            doFileRename(e.filename2, "\\".join(bits[:-1]) +
+                         "\\DISPLACED_" + bits[-1])
+            os.rename(oldFileName, newFileName)
 
 
 def imageSize(filename):
@@ -39,6 +54,7 @@ def imageSize(filename):
     except OSError:
         print("WARNING! OS error with file: ", filename)
         return 0
+
 
 def filemove(src, dst):
     usubdir = dst + "unsorted\\"
@@ -87,11 +103,19 @@ class MainWindow():
         map_prime = {map_[key]: key for key in map_.keys()}
         for val in context:
             self.listbox_context.insert(
-                tk.END, "{}".format(map_prime[val][0:15]) )
+                tk.END, "{}".format(map_prime[val][0:15]))
         self.listbox_context.configure(state=tk.DISABLED)
 
+    def labelFileName(self):
+        prettyname = self.filepaths[self.image_index].split("\\")[-1]
+        # prettyname = self.filelist[self.image_index][0]
+        self.str_curfile.set(prettyname)
+
     def openDir(self):
-        self.generatePaths(filedialog.askdirectory().replace("/", "\\"))
+        newdir = filedialog.askdirectory().replace("/", "\\")
+        if newdir == '':
+            return
+        self.generatePaths(newdir)
 
         # Initialize data
         self.reloadDirContext()
@@ -101,52 +125,48 @@ class MainWindow():
         self.nextImage()
 
     def initwindow(self, main):
+        top = self.main.winfo_toplevel()
 
         columns = 2
         inOrderList = [2 for i in range(0, columns)]
         height = 0
 
-        top = self.main.winfo_toplevel()
-
-        # Adjust image with size of window
-        # main.bind('<Configure>', lambda event: self.imageUpdate())
-
+        # Helper function to increment in-order elements
         def rowInOrder(col):
             nonlocal height
             inOrderList[col] += 1
             height = max(inOrderList)
             return inOrderList[col]
-        # Create a tk window.
 
-        # Header stuff
+        # # Header stuff # #
         # current filename label
         self.str_curfile = tk.StringVar(value="NaN")
         self.lab_curfile = tk.Label(main, textvariable=self.str_curfile)
         self.lab_curfile.grid(row=0, column=0, columnspan=2)
 
-        # UI stuff
+        # # Sidebar stuff # #
         # Backer
         # self.canvas_gui = tk.Canvas(main)
         # self.canvas_gui.grid(row=1, column=0, rowspan=4, sticky=FILL)
 
         # Navigation buttons
-        self.lab_context_label = tk.Label(main, text="Navigation").grid(
-            row=rowInOrder(1), sticky=WFILL, column=1)
-        btnrow = rowInOrder(1)
+        self.lab_context_label = tk.Label(main, text="Navigation")
+        self.lab_context_label.grid(row=rowInOrder(1), sticky=tk.W, column=1)
+        self.btn_ref = tk.Button(
+            main, text="Open", takefocus=False, command=self.openDir)
+        self.btn_ref.grid(row=inOrderList[1], column=1, sticky=tk.E)
+
         self.btn_skip = tk.Button(
             main, text="Skip", takefocus=False, command=self.nextImage)
-        self.btn_skip.grid(row=btnrow, column=1, sticky=tk.E)
-
-        self.btn_ref = tk.Button(main, takefocus=False, text="Refresh", command=(
-            lambda: self.imageUpdate() and self.reloadDirContext()))
-        self.btn_ref.grid(row=btnrow, column=1)
-
+        self.btn_skip.grid(row=rowInOrder(1), column=1, sticky=tk.E)
+        self.btn_ref = tk.Button(
+            main, text="Refresh", takefocus=False, command=(
+                lambda: self.imageUpdate() and self.reloadDirContext())
+        )
+        self.btn_ref.grid(row=inOrderList[1], column=1)
         self.btn_back = tk.Button(
-            main, takefocus=False, text="Prev", command=self.prevImage)
-        self.btn_back.grid(row=btnrow, column=1, sticky=tk.W)
-
-        self.btn_ref = tk.Button(main, takefocus=False, text="Open", command=self.openDir)
-        self.btn_ref.grid(row=rowInOrder(1), column=1)
+            main, text="Prev", takefocus=False, command=self.prevImage)
+        self.btn_back.grid(row=inOrderList[1], column=1, sticky=tk.W)
 
         def validateCommand(event):
             GOOD = "#AAFFAA"
@@ -154,37 +174,56 @@ class MainWindow():
             NORMAL = "#FFFFFF"
             if event.widget.get() == "":
                 event.widget.configure(bg=NORMAL)
-            else:
-                try:
-                    self.str_curfile.set(
-                        self.getBestFolder(event.widget.get()))
-                    event.widget.configure(bg=GOOD)
-                except OSError:
-                    self.labelFileName()
-                    event.widget.configure(bg=BAD)
+                return
+            try:
+                self.str_curfile.set(
+                    self.getBestFolder(event.widget.get()))
+                event.widget.configure(bg=GOOD)
+            except OSError:
+                self.labelFileName()
+                event.widget.configure(bg=BAD)
+
+        def myEntry():
+            return tk.Entry(main, highlightthickness=2)
 
         # Entry text field
         self.lab_context_label = tk.Label(
-            main, text="Move to folder ID:").grid(row=rowInOrder(1), column=1)
-        self.entry = tk.Entry(main)
+            main, text="Move to folder ID:")
+        self.lab_context_label.grid(row=rowInOrder(1), column=1)
+        self.entry = myEntry()
         self.entry.bind("<Return>", self.submit)
         self.entry.bind("<KeyRelease>", validateCommand)
         self.entry.grid(row=rowInOrder(1), column=1)
 
-        # New folder button
-        self.lab_newfolder = tk.Label(main, text="Move to new folder:").grid(
-            row=rowInOrder(1), column=1)
-        self.entry_newfolder = tk.Entry(main)
+        # New folder entry
+        self.lab_newfolder = tk.Label(
+            main, text="Move to new folder:")
+        self.lab_newfolder.grid(row=rowInOrder(1), column=1)
+        self.entry_newfolder = myEntry()
         self.entry_newfolder.bind("<Return>", self.newfolder)
         self.entry_newfolder.grid(row=rowInOrder(1), column=1)
 
+        # Rename label and check
+        self.lab_rename = tk.Label(main, text="Rename")
+        self.lab_rename.grid(row=rowInOrder(1), column=1, sticky=tk.W)
+        self.confident = tk.IntVar()
+        self.check_confident = tk.Checkbutton(
+            main, text="Displace", variable=self.confident)
+        self.check_confident.grid(row=inOrderList[1], column=1, sticky=tk.E)
+        
+        # Rename entry
+        self.entry_rename = myEntry()
+        self.entry_rename.grid(row=rowInOrder(1), column=1)
+        self.entry_rename.bind("<Return>", self.dorename)
         # context keys
         self.lab_context_label = tk.Label(
-            main, text="Folder IDs:").grid(row=rowInOrder(1), column=1)
+            main, text="Folder IDs:")
+        self.lab_context_label.grid(row=rowInOrder(1), column=1)
 
         # self.str_context = tk.StringVar()
         contextRow = rowInOrder(1)
-        self.listbox_context = tk.Listbox(main, state=tk.DISABLED, takefocus=False, disabledforeground=self.lab_curfile.cget('fg'), relief=tk.GROOVE)
+        self.listbox_context = tk.Listbox(
+            main, state=tk.DISABLED, takefocus=False, disabledforeground=self.lab_curfile.cget('fg'), relief=tk.GROOVE)
         self.listbox_context.grid(row=contextRow, column=1, sticky=FILL)
         top.rowconfigure(contextRow, weight=1)
 
@@ -194,7 +233,7 @@ class MainWindow():
         self.canvas.grid(row=1, column=0, rowspan=height, sticky=FILL)
 
         # Allow smart grid resizing for the canvas cell
-        #top.rowconfigure(1, weight=1)
+        # top.rowconfigure(1, weight=1)
         top.columnconfigure(0, weight=1)
 
         # set first image on canvas, an ImageTk.PhotoImage
@@ -237,10 +276,30 @@ class MainWindow():
         event.widget.delete(0, last=tk.END)
         self.nextImage()
 
+    def dorename(self, event):
+        entry = event.widget.get()
+        if entry == "":
+            self.nextImage()
+            return
+        oldFileName = self.filepaths[self.image_index]
+        newFileName = "{}\\{}.{}".format(
+            "\\".join(oldFileName.split("\\")[:-1]),
+            entry,
+            oldFileName.split(".")[-1]
+        )
+        doFileRename(oldFileName, newFileName,
+                     confident=(self.confident.get() == 1))
+        self.reloadImages()
+        self.imageUpdate()
+
+        # Clear field
+        event.widget.delete(0, last=tk.END)
+
     def newfolder(self, event):
         newfoldername = event.widget.get()
         oldFileName = self.filepaths[self.image_index]
         if newfoldername == "":
+            self.nextImage()
             return
         try:
             newdir = "{}/{}".format(self.rootpath, newfoldername)
@@ -257,11 +316,13 @@ class MainWindow():
     def generatePaths(self, rootpath):
         print("Generating paths for: {}".format(rootpath))
         if os.path.exists("{}\\unsorted".format(rootpath)):
-            self.imageglobs = ["{}\\unsorted\\*.{}".format(rootpath, ext) for ext in IMAGEEXTS]
+            self.imageglobs = [
+                "{}\\unsorted\\*.{}".format(rootpath, ext) for ext in IMAGEEXTS]
             # Path to add new folders in:
             self.contextglobs = [rootpath + '\\*\\', rootpath + '\\..\\']
         else:
-            self.imageglobs = ["{}\\*.{}".format(rootpath, ext) for ext in IMAGEEXTS]
+            self.imageglobs = [
+                "{}\\*.{}".format(rootpath, ext) for ext in IMAGEEXTS]
             self.contextglobs = [rootpath + '\\..\\*\\', rootpath + '\\..\\']
             rootpath += "\\..\\"
         self.rootpath = rootpath
@@ -273,24 +334,8 @@ class MainWindow():
         self.generateContextKey(self.context, self.keymap)
 
     def reloadImages(self):
-        self.filepaths = sorted(sum([glob(a) for a in self.imageglobs], []), key=imageSize)
-        # self.filelist = []
-
-        # # Create tk image objects and pair with paths
-        # for filename in filepaths:
-        #     try:
-        #         print(filename)
-        #         pilimage = Image.open(filename)
-        #         image = ImageTk.PhotoImage(pilimage)
-        #         # tk.PhotoImage(file=filename)
-        # #         self.filelist.append([filename, image])
-        #     except OSError as e:
-        #         print("[OS error] Bad image: " + filename)
-        #         traceback.print_exc()
-        #     except tk._tk.TclError as e:
-        #         print("[tk error] Bad image: " + filename)
-        #         traceback.print_exc()
-                # self.filelist.remove(entry)
+        self.filepaths = sorted(
+            sum([glob(a) for a in self.imageglobs], []), key=imageSize)
 
     def nextImage(self):
         # Queue the next image
@@ -332,7 +377,7 @@ class MainWindow():
                 traceback.print_exc()
                 self.filepaths.remove(filename)
                 self.imageUpdate()
-                return 
+                return
 
             width = self.curimg.width()
             height = self.curimg.height()
@@ -346,16 +391,12 @@ class MainWindow():
                     maxheight
                 ))
                 ratio = min(maxwidth / width, maxheight / height)
-                pilimg = Image.open(filename).resize((int(width * ratio), int(height * ratio)), Image.ANTIALIAS)
+                pilimg = Image.open(filename).resize(
+                    (int(width * ratio), int(height * ratio)), Image.ANTIALIAS)
                 self.curimg = ImageTk.PhotoImage(pilimg)
 
             self.canvas.itemconfig(self.image_on_canvas, image=self.curimg)
             self.labelFileName()
-
-    def labelFileName(self):
-        prettyname = self.filepaths[self.image_index].split("\\")[-1]
-        # prettyname = self.filelist[self.image_index][0]
-        self.str_curfile.set(prettyname)
 
 
 ap = argparse.ArgumentParser()
