@@ -7,6 +7,12 @@ import traceback
 import errno
 from PIL import ImageTk, Image
 from tkinter import filedialog
+from math import floor
+
+
+def nop(self):
+    return None
+
 
 """
 TODO:
@@ -57,9 +63,6 @@ def imageSize(filename):
 
 
 def filemove(src, dst):
-    usubdir = dst + "unsorted\\"
-    if os.path.exists(usubdir):
-        dst = usubdir
     print("{} -> {}".format(src, dst))
     try:
         shutil.move(src, dst)
@@ -121,11 +124,13 @@ class MainWindow():
         self.reloadDirContext()
         self.reloadImages()
 
+        self.undo = nop
         # Initialize images
         self.nextImage()
 
     def initwindow(self, main):
         top = self.main.winfo_toplevel()
+        top.bind("<Control-z>", self.undo)
 
         columns = 2
         inOrderList = [2 for i in range(0, columns)]
@@ -161,7 +166,7 @@ class MainWindow():
         self.btn_skip.grid(row=rowInOrder(1), column=1, sticky=tk.E)
         self.btn_ref = tk.Button(
             main, text="Refresh", takefocus=False, command=(
-                lambda: self.imageUpdate() and self.reloadDirContext())
+                lambda: (self.reloadDirContext(), self.imageUpdate()))
         )
         self.btn_ref.grid(row=inOrderList[1], column=1)
         self.btn_back = tk.Button(
@@ -269,8 +274,13 @@ class MainWindow():
             return
             # choice = self.context[atoi[self.entry.get()]]
         # extension = oldFileName.split('.')[-1]
-        dst = choice
+        dst = choice 
+        usubdir = dst + "unsorted\\"
+        if os.path.exists(usubdir):
+            dst = usubdir
         filemove(oldFileName, dst)
+        print(dst + "\\" + oldFileName.split("\\")[-1], oldFileName)
+        self.undo = lambda self: filemove(dst + oldFileName.split("\\")[-1], oldFileName)
 
         # Clear field
         event.widget.delete(0, last=tk.END)
@@ -289,6 +299,7 @@ class MainWindow():
         )
         doFileRename(oldFileName, newFileName,
                      confident=(self.confident.get() == 1))
+        self.undo = lambda self: doFileRename(newFileName, oldFileName, confident=(self.confident.get() == 1))
         self.reloadImages()
         self.imageUpdate()
 
@@ -313,9 +324,17 @@ class MainWindow():
         # Clear field
         event.widget.delete(0, last=tk.END)
 
+    def undo(self, event):
+        self.undo(self)
+        self.undo = nop
+        self.image_index -= 1
+        self.reloadImages()
+        self.imageUpdate()
+
     def generatePaths(self, rootpath):
         print("Generating paths for: {}".format(rootpath))
         if os.path.exists("{}\\unsorted".format(rootpath)):
+            # Dive into unsorted
             self.imageglobs = [
                 "{}\\unsorted\\*.{}".format(rootpath, ext) for ext in IMAGEEXTS]
             # Path to add new folders in:
@@ -325,7 +344,7 @@ class MainWindow():
                 "{}\\*.{}".format(rootpath, ext) for ext in IMAGEEXTS]
             self.contextglobs = [rootpath + '\\..\\*\\', rootpath + '\\..\\']
             rootpath += "\\..\\"
-        self.rootpath = rootpath
+        self.rootpath = rootpath  # Where we make new folders
 
     def reloadDirContext(self):
         self.context = sum([glob(a) for a in self.contextglobs], [])
@@ -334,8 +353,9 @@ class MainWindow():
         self.generateContextKey(self.context, self.keymap)
 
     def reloadImages(self):
-        self.filepaths = sorted(
-            sum([glob(a) for a in self.imageglobs], []), key=imageSize)
+        # self.filepaths = sorted(
+        #     sum([glob(a) for a in self.imageglobs], []), key=imageSize)
+        self.filepaths = sum([glob(a) for a in self.imageglobs], [])
 
     def nextImage(self):
         # Queue the next image
@@ -353,7 +373,7 @@ class MainWindow():
 
         # Wraparound
         if self.image_index < 0:
-            self.image_index = len(self.filepaths)
+            self.image_index = len(self.filepaths) - 1
         if self.image_index >= len(self.filepaths):
             self.reloadImages()
             self.image_index = 0
@@ -391,8 +411,13 @@ class MainWindow():
                     maxheight
                 ))
                 ratio = min(maxwidth / width, maxheight / height)
+                method = Image.ANTIALIAS
+                if ratio > 1:
+                    ratio = floor(ratio)
+                    method = Image.LINEAR
                 pilimg = Image.open(filename).resize(
-                    (int(width * ratio), int(height * ratio)), Image.ANTIALIAS)
+                    (int(width * ratio), int(height * ratio)), method)
+
                 self.curimg = ImageTk.PhotoImage(pilimg)
 
             self.canvas.itemconfig(self.image_on_canvas, image=self.curimg)

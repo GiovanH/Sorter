@@ -1,11 +1,9 @@
-all: sort rename
+all: sort
 
 clean:
 	rm -rv build dist
 
 sort: sort.exe
-
-rename: rename.exe
 
 %.exe: %.py
 	pyinstaller $< -F -w
