@@ -12,6 +12,7 @@ from os.path import sep
 from tkinter import messagebox
 from send2trash import send2trash
 
+
 def nop(self):
     return None
 
@@ -81,6 +82,7 @@ class FileSorter():
 
         self.image_index = -1
         self.str_context = tk.StringVar()
+        self.undo = []
 
         # Store arguments.
         self.main = Tk
@@ -108,6 +110,8 @@ class FileSorter():
         top = self.main.winfo_toplevel()
         top.bind("<Control-z>", self.doUndo)
         top.bind("<Delete>", self.delete)
+        top.bind("<Right>", self.nextImage)
+        top.bind("<Left>", self.prevImage)
 
         columns = 2
         inOrderList = [2 for i in range(0, columns)]
@@ -150,60 +154,48 @@ class FileSorter():
             main, text="Prev", takefocus=False, command=self.prevImage)
         self.btn_back.grid(row=inOrderList[1], column=1, sticky=tk.W)
 
-        def validateCommand(event):
-            GOOD = "#AAFFAA"
-            BAD = "#FFAAAA"
-            NORMAL = "#FFFFFF"
-            if event.widget.get() == "":
-                event.widget.configure(bg=NORMAL)
-                return
-            try:
-                self.str_curfile.set(
-                    self.getBestFolder(event.widget.get()))
-                event.widget.configure(bg=GOOD)
-                if self.aggressive.get():
-                    self.submit(entry=self.entry.get())
-            except OSError:
-                self.labelFileName()
-                event.widget.configure(bg=BAD)
-
-        def myEntry():
+        def highlightEntry():
             return tk.Entry(main, highlightthickness=2)
 
         # Entry text field
         self.lab_context_label = tk.Label(
             main, text="Move to folder ID:")
-        self.lab_context_label.grid(row=rowInOrder(1), column=1)
-        self.entry = myEntry()
-        self.entry.bind("<Return>", self.submit)
-        self.entry.bind("<KeyRelease>", validateCommand)
-        self.entry.grid(row=rowInOrder(1), column=1)
+        self.lab_context_label.grid(row=rowInOrder(1), column=1, sticky=tk.W)
 
-        self.aggressive = tk.IntVar()
-        self.check_aggressive = tk.Checkbutton(
-            main, text="Aggressive", variable=self.aggressive)
-        self.check_aggressive.grid(row=inOrderList[1], column=1, sticky=tk.E)
+        self.entry = highlightEntry()
+        self.entry.bind("<Return>", self.submit)
+        self.entry.bind("<BackSpace>", self.backspace)
+        self.entry.bind("<KeyRelease>", self.validateCommand)
+        self.entry.grid(row=rowInOrder(1), column=1)
 
         # New folder entry
         self.lab_newfolder = tk.Label(
             main, text="Move to new folder:")
         self.lab_newfolder.grid(row=rowInOrder(1), column=1)
-        self.entry_newfolder = myEntry()
+
+        self.entry_newfolder = highlightEntry()
         self.entry_newfolder.bind("<Return>", self.newfolder)
         self.entry_newfolder.grid(row=rowInOrder(1), column=1)
 
-        # Rename label and check
+        # Rename
         self.lab_rename = tk.Label(main, text="Rename")
         self.lab_rename.grid(row=rowInOrder(1), column=1, sticky=tk.W)
+
+        self.entry_rename = highlightEntry()
+        self.entry_rename.grid(row=rowInOrder(1), column=1)
+        self.entry_rename.bind("<Return>", self.dorename)
+
+        # Setting checkboxes
+        self.aggressive = tk.IntVar()
+        self.check_aggressive = tk.Checkbutton(
+            main, text="Auto", variable=self.aggressive)
+        self.check_aggressive.grid(row=rowInOrder(1), column=1, sticky=tk.W)
+
         self.confident = tk.IntVar()
         self.check_confident = tk.Checkbutton(
             main, text="Displace", variable=self.confident)
         self.check_confident.grid(row=inOrderList[1], column=1, sticky=tk.E)
-        
-        # Rename entry
-        self.entry_rename = myEntry()
-        self.entry_rename.grid(row=rowInOrder(1), column=1)
-        self.entry_rename.bind("<Return>", self.dorename)
+
         # context keys
         self.lab_context_label = tk.Label(
             main, text="Folder IDs:")
@@ -239,7 +231,7 @@ class FileSorter():
         self.reloadDirContext()
         self.reloadImages()
 
-        self.undo = nop
+        self.undo = []
         # Initialize images
         self.nextImage()
 
@@ -280,8 +272,8 @@ class FileSorter():
                 "{}{sep}unsorted{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
             # Put images in same-level directories
             self.contextglobs = [
-                '{}{sep}*{sep}'.format(rootpath, sep=sep), 
-                '{}{sep}..{sep}..{sep}'.format(rootpath, sep=sep)
+                '{}{sep}*{sep}'.format(rootpath, sep=sep),
+                '{}{sep}..{sep}'.format(rootpath, sep=sep)
             ]
         else:
             # Pull loose images
@@ -289,12 +281,33 @@ class FileSorter():
                 "{}{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
             # Put images in parent directories
             self.contextglobs = [
-                '{}{sep}..{sep}*{sep}'.format(rootpath, sep=sep), 
-                '{}{sep}..{sep}'.format(rootpath, sep=sep)
+                '{}{sep}..{sep}*{sep}'.format(rootpath, sep=sep),
+                '{}{sep}..{sep}..{sep}'.format(rootpath, sep=sep)
             ]
             rootpath += "{sep}..{sep}".format(sep=sep)
         self.rootpath = rootpath  # Where we make new folders
-    
+
+    def validateCommand(self, event):
+        GOOD = "#AAFFAA"
+        BAD = "#FFAAAA"
+        NORMAL = "#FFFFFF"
+        if event.widget.get() == "":
+            event.widget.configure(bg=NORMAL)
+            return
+        try:
+            self.str_curfile.set(
+                self.getBestFolder(event.widget.get()))
+            event.widget.configure(bg=GOOD)
+            if self.aggressive.get():
+                self.submit(entry=self.entry.get())
+        except OSError:
+            self.labelFileName()
+            event.widget.configure(bg=BAD)
+
+    def backspace(self, event):
+        if event.widget.get() == "":
+            self.prevImage()
+
     # Backend updates
 
     def reloadDirContext(self):
@@ -308,19 +321,17 @@ class FileSorter():
         #     sum([glob(a) for a in self.imageglobs], []), key=imageSize)
         self.filepaths = sum([glob(a) for a in self.imageglobs], [])
 
-    def nextImage(self):
+    def nextImage(self, event=None):
         # Queue the next image
         self.image_index += 1
         self.imageUpdate()
 
-    def prevImage(self):
+    def prevImage(self, event=None):
         self.image_index -= 1
         self.imageUpdate()
 
     def imageUpdate(self):
         # Let window load
-        maxwidth = self.canvas.winfo_width()
-        maxheight = self.canvas.winfo_height()
 
         # Wraparound
         if self.image_index < 0:
@@ -335,44 +346,50 @@ class FileSorter():
             filename = self.filepaths[self.image_index]
             print(filename)
             try:
-                pilimg = Image.open(filename)
-                self.curimg = ImageTk.PhotoImage(pilimg)
+                self.curimg = self.makePhotoImage(filename)
             except OSError as e:
                 print("[OS error] Bad image: " + filename)
                 traceback.print_exc()
                 self.filepaths.remove(filename)
                 self.imageUpdate()
                 return
-            except tk._tk.TclError as e:
+            except tk.TclError as e:
                 print("[tk error] Bad image: " + filename)
                 traceback.print_exc()
                 self.filepaths.remove(filename)
                 self.imageUpdate()
                 return
 
-            width = self.curimg.width()
-            height = self.curimg.height()
-            imageIsTooBig = width > maxwidth or height > maxheight
-            if (imageIsTooBig or ALWAYS_RESIZE) and not maxwidth == maxheight == 1:
-                print("Image {} is too big. [{}x{} image in {}x{} canvas]".format(
-                    filename,
-                    width,
-                    height,
-                    maxwidth,
-                    maxheight
-                ))
-                ratio = min(maxwidth / width, maxheight / height)
-                method = Image.ANTIALIAS
-                if ratio > 1:
-                    ratio = floor(ratio)
-                    method = Image.LINEAR
-                pilimg = Image.open(filename).resize(
-                    (int(width * ratio), int(height * ratio)), method)
-
-                self.curimg = ImageTk.PhotoImage(pilimg)
-
             self.canvas.itemconfig(self.image_on_canvas, image=self.curimg)
             self.labelFileName()
+
+    def makePhotoImage(self, filename):
+        maxwidth = self.canvas.winfo_width()
+        maxheight = self.canvas.winfo_height()
+
+        pilimg = Image.open(filename)
+        self.curimg = ImageTk.PhotoImage(pilimg)
+
+        width = self.curimg.width()
+        height = self.curimg.height()
+        imageIsTooBig = width > maxwidth or height > maxheight
+        if (imageIsTooBig or ALWAYS_RESIZE) and not maxwidth == maxheight == 1:
+            # print("Image {} is too big. [{}x{} image in {}x{} canvas]".format(
+            #     filename,
+            #     width,
+            #     height,
+            #     maxwidth,
+            #     maxheight
+            # ))
+            ratio = min(maxwidth / width, maxheight / height)
+            method = Image.ANTIALIAS
+            if ratio > 1:
+                ratio = floor(ratio)
+                method = Image.LINEAR
+            pilimg = Image.open(filename).resize(
+                (int(width * ratio), int(height * ratio)), method)
+
+        return ImageTk.PhotoImage(pilimg)
 
     # Disk action
 
@@ -397,13 +414,14 @@ class FileSorter():
             return
             # choice = self.context[atoi[self.entry.get()]]
         # extension = oldFileName.split('.')[-1]
-        dst = choice 
+        dst = choice
         usubdir = dst + "unsorted{}".format(sep)
         if os.path.exists(usubdir):
             dst = usubdir
         filemove(oldFileName, dst)
         self.filepaths.remove(oldFileName)
-        self.undo = lambda self: filemove(dst + oldFileName.split(sep)[-1], oldFileName)
+        self.undo.append(lambda self: filemove(
+            dst + oldFileName.split(sep)[-1], oldFileName))
 
         # Clear field
         widget.delete(0, last=tk.END)
@@ -411,7 +429,8 @@ class FileSorter():
 
     def delete(self, event):
         fileToDelete = self.filepaths[self.image_index]
-        confirmed = messagebox.askyesno("Confirm", "{}\nAre you sure you want to delete this file?".format(fileToDelete))
+        confirmed = messagebox.askyesno(
+            "Confirm", "{}\nAre you sure you want to delete this file?\n(The file will be trashed, and semi-recoverable.)".format(fileToDelete))
         if confirmed:
             send2trash(fileToDelete)
             self.filepaths.remove(fileToDelete)
@@ -431,7 +450,8 @@ class FileSorter():
         )
         doFileRename(oldFileName, newFileName,
                      confident=(self.confident.get() == 1))
-        self.undo = lambda self: doFileRename(newFileName, oldFileName, confident=(self.confident.get() == 1))
+        self.undo.append(lambda self: doFileRename(
+            newFileName, oldFileName, confident=(self.confident.get() == 1)))
         self.reloadImages()
         self.imageUpdate()
 
@@ -459,8 +479,10 @@ class FileSorter():
         event.widget.delete(0, last=tk.END)
 
     def doUndo(self, event):
-        self.undo(self)
-        self.undo = nop
+        if len(self.undo) == 0:
+            return
+        op = self.undo.pop()
+        op(self)
         self.image_index -= 1
         self.reloadImages()
         self.imageUpdate()
