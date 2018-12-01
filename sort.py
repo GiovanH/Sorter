@@ -343,13 +343,19 @@ class MainWindow():
             self.imageglobs = [
                 "{}{sep}unsorted{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
             # Put images in same-level directories
-            self.contextglobs = [rootpath + '{sep}*{sep}'.format(sep=sep), rootpath + '{sep}..{sep}'.format(sep=sep)]
+            self.contextglobs = [
+                '{}{sep}*{sep}'.format(rootpath, sep=sep), 
+                '{}{sep}..{sep}'.format(rootpath, sep=sep)
+            ]
         else:
             # Pull loose images
             self.imageglobs = [
                 "{}{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
             # Put images in parent directories
-            self.contextglobs = [rootpath + '{sep}..{sep}*{sep}'.format(sep=sep), rootpath + '{sep}..{sep}'.format(sep=sep)]
+            self.contextglobs = [
+                '{}{sep}..{sep}*{sep}'.format(rootpath, sep=sep), 
+                '{}{sep}..{sep}'.format(rootpath, sep=sep)
+            ]
             rootpath += "{sep}..{sep}".format(sep=sep)
         self.rootpath = rootpath  # Where we make new folders
 
