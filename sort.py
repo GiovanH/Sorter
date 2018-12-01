@@ -8,6 +8,7 @@ import errno
 from PIL import ImageTk, Image
 from tkinter import filedialog
 from math import floor
+from os.path import sep
 
 
 def nop(self):
@@ -31,7 +32,7 @@ IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif"]
 
 
 def makeMappings(lst):
-    vals = [i.split('\\')[-2].lower() for i in lst]
+    vals = [i.split(sep)[-2].lower() for i in lst]
     map_prime = {vals[i]: lst[i] for i in range(0, len(lst))}
     return map_prime
 
@@ -44,9 +45,9 @@ def doFileRename(oldFileName, newFileName, confident=False):
         if confident:
             print("Renaming conflicting file", e.filename2)
             "DISPLACED_"
-            bits = e.filename2.split("\\")
-            doFileRename(e.filename2, "\\".join(bits[:-1]) +
-                         "\\DISPLACED_" + bits[-1])
+            bits = e.filename2.split(sep)
+            doFileRename(e.filename2, sep.join(bits[:-1]) +
+                         "{}DISPLACED_".format(sep) + bits[-1])
             os.rename(oldFileName, newFileName)
 
 
@@ -82,7 +83,7 @@ class MainWindow():
         self.main = Tk
 
         if rootpath is None:
-            rootpath = filedialog.askdirectory().replace("/", "\\")
+            rootpath = filedialog.askdirectory().replace("/", sep)
 
         if rootpath == '':
             os.abort()
@@ -110,12 +111,12 @@ class MainWindow():
         self.listbox_context.configure(state=tk.DISABLED)
 
     def labelFileName(self):
-        prettyname = self.filepaths[self.image_index].split("\\")[-1]
+        prettyname = self.filepaths[self.image_index].split(sep)[-1]
         # prettyname = self.filelist[self.image_index][0]
         self.str_curfile.set(prettyname)
 
     def openDir(self):
-        newdir = filedialog.askdirectory().replace("/", "\\")
+        newdir = filedialog.askdirectory().replace("/", sep)
         if newdir == '':
             return
         self.generatePaths(newdir)
@@ -275,12 +276,14 @@ class MainWindow():
             # choice = self.context[atoi[self.entry.get()]]
         # extension = oldFileName.split('.')[-1]
         dst = choice 
-        usubdir = dst + "unsorted\\"
+        usubdir = dst + "unsorted{}".format(sep)
         if os.path.exists(usubdir):
             dst = usubdir
         filemove(oldFileName, dst)
-        print(dst + "\\" + oldFileName.split("\\")[-1], oldFileName)
-        self.undo = lambda self: filemove(dst + oldFileName.split("\\")[-1], oldFileName)
+        # TODO: If our directory is unsorted, files need to be moved to ../../unsorted
+        # TODO: Maintain file paths better. Make a dictionary!
+        print(dst + sep + oldFileName.split(sep)[-1], oldFileName)
+        self.undo = lambda self: filemove(dst + oldFileName.split(sep)[-1], oldFileName)
 
         # Clear field
         event.widget.delete(0, last=tk.END)
@@ -292,8 +295,9 @@ class MainWindow():
             self.nextImage()
             return
         oldFileName = self.filepaths[self.image_index]
-        newFileName = "{}\\{}.{}".format(
-            "\\".join(oldFileName.split("\\")[:-1]),
+        newFileName = "{}{}{}.{}".format(
+            sep.join(oldFileName.split(sep)[:-1]),
+            sep,
             entry,
             oldFileName.split(".")[-1]
         )
@@ -333,17 +337,20 @@ class MainWindow():
 
     def generatePaths(self, rootpath):
         print("Generating paths for: {}".format(rootpath))
-        if os.path.exists("{}\\unsorted".format(rootpath)):
-            # Dive into unsorted
+        if os.path.exists("{}{sep}unsorted".format(rootpath, sep=sep)):
+            # Pull images from unsorted
+            self.imagefoldername = "unsorted"
             self.imageglobs = [
-                "{}\\unsorted\\*.{}".format(rootpath, ext) for ext in IMAGEEXTS]
-            # Path to add new folders in:
-            self.contextglobs = [rootpath + '\\*\\', rootpath + '\\..\\']
+                "{}{sep}unsorted{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
+            # Put images in same-level directories
+            self.contextglobs = [rootpath + '{sep}*{sep}'.format(sep=sep), rootpath + '{sep}..{sep}'.format(sep=sep)]
         else:
+            # Pull loose images
             self.imageglobs = [
-                "{}\\*.{}".format(rootpath, ext) for ext in IMAGEEXTS]
-            self.contextglobs = [rootpath + '\\..\\*\\', rootpath + '\\..\\']
-            rootpath += "\\..\\"
+                "{}{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
+            # Put images in parent directories
+            self.contextglobs = [rootpath + '{sep}..{sep}*{sep}'.format(sep=sep), rootpath + '{sep}..{sep}'.format(sep=sep)]
+            rootpath += "{sep}..{sep}".format(sep=sep)
         self.rootpath = rootpath  # Where we make new folders
 
     def reloadDirContext(self):
