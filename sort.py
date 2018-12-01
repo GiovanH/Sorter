@@ -9,8 +9,8 @@ from PIL import ImageTk, Image
 from tkinter import filedialog
 from math import floor
 from os.path import sep
+from tkinter import messagebox
 from send2trash import send2trash
-
 
 def nop(self):
     return None
@@ -73,7 +73,7 @@ def filemove(src, dst):
         traceback.print_exc()
 
 
-class MainWindow():
+class FileSorter():
 
     # Init and window management
 
@@ -106,7 +106,8 @@ class MainWindow():
 
     def initwindow(self, main):
         top = self.main.winfo_toplevel()
-        top.bind("<Control-z>", self.undo)
+        top.bind("<Control-z>", self.doUndo)
+        top.bind("<Delete>", self.delete)
 
         columns = 2
         inOrderList = [2 for i in range(0, columns)]
@@ -401,12 +402,20 @@ class MainWindow():
         if os.path.exists(usubdir):
             dst = usubdir
         filemove(oldFileName, dst)
-        print(dst + sep + oldFileName.split(sep)[-1], oldFileName)
+        self.filepaths.remove(oldFileName)
         self.undo = lambda self: filemove(dst + oldFileName.split(sep)[-1], oldFileName)
 
         # Clear field
         widget.delete(0, last=tk.END)
-        self.nextImage()
+        self.imageUpdate()
+
+    def delete(self, event):
+        fileToDelete = self.filepaths[self.image_index]
+        confirmed = messagebox.askyesno("Confirm", "{}\nAre you sure you want to delete this file?".format(fileToDelete))
+        if confirmed:
+            send2trash(fileToDelete)
+            self.filepaths.remove(fileToDelete)
+            self.imageUpdate()
 
     def dorename(self, event):
         entry = event.widget.get()
@@ -440,6 +449,8 @@ class MainWindow():
             os.mkdir(newdir)
             self.reloadDirContext()
             filemove(oldFileName, newdir)
+            self.filepaths.remove(oldFileName)
+            self.image_index -= 1
             self.nextImage()
         except Exception:
             traceback.print_exc()
@@ -447,7 +458,7 @@ class MainWindow():
         # Clear field
         event.widget.delete(0, last=tk.END)
 
-    def undo(self, event):
+    def doUndo(self, event):
         self.undo(self)
         self.undo = nop
         self.image_index -= 1
@@ -462,5 +473,5 @@ args = ap.parse_args()
 
 
 Tk = tk.Tk()
-MainWindow(Tk, args.root)
+FileSorter(Tk, args.root)
 Tk.mainloop()
