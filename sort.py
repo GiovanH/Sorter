@@ -75,6 +75,8 @@ def filemove(src, dst):
 
 class MainWindow():
 
+    # Init and window management
+
     def __init__(self, Tk, rootpath):
 
         self.image_index = -1
@@ -101,34 +103,6 @@ class MainWindow():
         # Initialize images
         self.nextImage()
         self.imageUpdate()
-
-    def generateContextKey(self, context, map_):
-        self.listbox_context.configure(state=tk.NORMAL)
-        self.listbox_context.delete(0, self.listbox_context.size())
-        map_prime = {map_[key]: key for key in map_.keys()}
-        for val in context:
-            self.listbox_context.insert(
-                tk.END, "{}".format(map_prime[val][0:15]))
-        self.listbox_context.configure(state=tk.DISABLED)
-
-    def labelFileName(self):
-        prettyname = self.filepaths[self.image_index].split(sep)[-1]
-        # prettyname = self.filelist[self.image_index][0]
-        self.str_curfile.set(prettyname)
-
-    def openDir(self):
-        newdir = filedialog.askdirectory().replace("/", sep)
-        if newdir == '':
-            return
-        self.generatePaths(newdir)
-
-        # Initialize data
-        self.reloadDirContext()
-        self.reloadImages()
-
-        self.undo = nop
-        # Initialize images
-        self.nextImage()
 
     def initwindow(self, main):
         top = self.main.winfo_toplevel()
@@ -254,6 +228,27 @@ class MainWindow():
         self.image_on_canvas = self.canvas.create_image(
             0, 0, anchor=tk.N + tk.W)
 
+    def openDir(self):
+        newdir = filedialog.askdirectory().replace("/", sep)
+        if newdir == '':
+            return
+        self.generatePaths(newdir)
+
+        # Initialize data
+        self.reloadDirContext()
+        self.reloadImages()
+
+        self.undo = nop
+        # Initialize images
+        self.nextImage()
+
+    def labelFileName(self):
+        prettyname = self.filepaths[self.image_index].split(sep)[-1]
+        # prettyname = self.filelist[self.image_index][0]
+        self.str_curfile.set(prettyname)
+
+    # Generators and logic
+
     def getBestFolder(self, entry, fast=False):
         try:
             return self.keymap[entry]
@@ -266,86 +261,14 @@ class MainWindow():
                     return self.keymap[keys[matches.index(0)]]
             raise EnvironmentError("Ambiguous folder selected")
 
-    def submit(self, event=False, entry=""):
-        oldFileName = self.filepaths[self.image_index]
-        if event:
-            entry = event.widget.get()
-            if entry == "":
-                self.nextImage()
-                return
-            widget = event.widget
-        else:
-            widget = self.entry
-        try:
-            choice = self.getBestFolder(entry)
-        except EnvironmentError:
-            traceback.print_exc()
-            # os.mkdir(entry)
-            # self.reloadDirContext(self.rootpath)
-            self.str_curfile.set(
-                "Invalid key: {}".format(entry))
-            return
-            # choice = self.context[atoi[self.entry.get()]]
-        # extension = oldFileName.split('.')[-1]
-        dst = choice 
-        usubdir = dst + "unsorted{}".format(sep)
-        if os.path.exists(usubdir):
-            dst = usubdir
-        filemove(oldFileName, dst)
-        # TODO: If our directory is unsorted, files need to be moved to ../../unsorted
-        # TODO: Maintain file paths better. Make a dictionary!
-        print(dst + sep + oldFileName.split(sep)[-1], oldFileName)
-        self.undo = lambda self: filemove(dst + oldFileName.split(sep)[-1], oldFileName)
-
-        # Clear field
-        widget.delete(0, last=tk.END)
-        self.nextImage()
-
-    def dorename(self, event):
-        entry = event.widget.get()
-        if entry == "":
-            self.nextImage()
-            return
-        oldFileName = self.filepaths[self.image_index]
-        newFileName = "{}{}{}.{}".format(
-            sep.join(oldFileName.split(sep)[:-1]),
-            sep,
-            entry,
-            oldFileName.split(".")[-1]
-        )
-        doFileRename(oldFileName, newFileName,
-                     confident=(self.confident.get() == 1))
-        self.undo = lambda self: doFileRename(newFileName, oldFileName, confident=(self.confident.get() == 1))
-        self.reloadImages()
-        self.imageUpdate()
-
-        # Clear field
-        event.widget.delete(0, last=tk.END)
-
-    def newfolder(self, event):
-        newfoldername = event.widget.get()
-        oldFileName = self.filepaths[self.image_index]
-        if newfoldername == "":
-            self.nextImage()
-            return
-        try:
-            newdir = "{}/{}".format(self.rootpath, newfoldername)
-            os.mkdir(newdir)
-            self.reloadDirContext()
-            filemove(oldFileName, newdir)
-            self.nextImage()
-        except Exception:
-            traceback.print_exc()
-
-        # Clear field
-        event.widget.delete(0, last=tk.END)
-
-    def undo(self, event):
-        self.undo(self)
-        self.undo = nop
-        self.image_index -= 1
-        self.reloadImages()
-        self.imageUpdate()
+    def generateContextKey(self, context, map_):
+        self.listbox_context.configure(state=tk.NORMAL)
+        self.listbox_context.delete(0, self.listbox_context.size())
+        map_prime = {map_[key]: key for key in map_.keys()}
+        for val in context:
+            self.listbox_context.insert(
+                tk.END, "{}".format(map_prime[val][0:15]))
+        self.listbox_context.configure(state=tk.DISABLED)
 
     def generatePaths(self, rootpath):
         print("Generating paths for: {}".format(rootpath))
@@ -370,6 +293,8 @@ class MainWindow():
             ]
             rootpath += "{sep}..{sep}".format(sep=sep)
         self.rootpath = rootpath  # Where we make new folders
+    
+    # Backend updates
 
     def reloadDirContext(self):
         self.context = sum([glob(a) for a in self.contextglobs], [])
@@ -447,6 +372,87 @@ class MainWindow():
 
             self.canvas.itemconfig(self.image_on_canvas, image=self.curimg)
             self.labelFileName()
+
+    # Disk action
+
+    def submit(self, event=False, entry=""):
+        oldFileName = self.filepaths[self.image_index]
+        if event:
+            entry = event.widget.get()
+            if entry == "":
+                self.nextImage()
+                return
+            widget = event.widget
+        else:
+            widget = self.entry
+        try:
+            choice = self.getBestFolder(entry)
+        except EnvironmentError:
+            traceback.print_exc()
+            # os.mkdir(entry)
+            # self.reloadDirContext(self.rootpath)
+            self.str_curfile.set(
+                "Invalid key: {}".format(entry))
+            return
+            # choice = self.context[atoi[self.entry.get()]]
+        # extension = oldFileName.split('.')[-1]
+        dst = choice 
+        usubdir = dst + "unsorted{}".format(sep)
+        if os.path.exists(usubdir):
+            dst = usubdir
+        filemove(oldFileName, dst)
+        print(dst + sep + oldFileName.split(sep)[-1], oldFileName)
+        self.undo = lambda self: filemove(dst + oldFileName.split(sep)[-1], oldFileName)
+
+        # Clear field
+        widget.delete(0, last=tk.END)
+        self.nextImage()
+
+    def dorename(self, event):
+        entry = event.widget.get()
+        if entry == "":
+            self.nextImage()
+            return
+        oldFileName = self.filepaths[self.image_index]
+        newFileName = "{}{}{}.{}".format(
+            sep.join(oldFileName.split(sep)[:-1]),
+            sep,
+            entry,
+            oldFileName.split(".")[-1]
+        )
+        doFileRename(oldFileName, newFileName,
+                     confident=(self.confident.get() == 1))
+        self.undo = lambda self: doFileRename(newFileName, oldFileName, confident=(self.confident.get() == 1))
+        self.reloadImages()
+        self.imageUpdate()
+
+        # Clear field
+        event.widget.delete(0, last=tk.END)
+
+    def newfolder(self, event):
+        newfoldername = event.widget.get()
+        oldFileName = self.filepaths[self.image_index]
+        if newfoldername == "":
+            self.nextImage()
+            return
+        try:
+            newdir = "{}/{}".format(self.rootpath, newfoldername)
+            os.mkdir(newdir)
+            self.reloadDirContext()
+            filemove(oldFileName, newdir)
+            self.nextImage()
+        except Exception:
+            traceback.print_exc()
+
+        # Clear field
+        event.widget.delete(0, last=tk.END)
+
+    def undo(self, event):
+        self.undo(self)
+        self.undo = nop
+        self.image_index -= 1
+        self.reloadImages()
+        self.imageUpdate()
 
 
 ap = argparse.ArgumentParser()
