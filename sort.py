@@ -9,6 +9,7 @@ from PIL import ImageTk, Image
 from tkinter import filedialog
 from math import floor
 from os.path import sep
+from send2trash import send2trash
 
 
 def nop(self):
@@ -83,12 +84,12 @@ class MainWindow():
         self.main = Tk
 
         if rootpath is None:
-            rootpath = filedialog.askdirectory().replace("/", sep)
+            rootpath = filedialog.askdirectory()
 
         if rootpath == '':
             os.abort()
         # Validate arguments
-        self.generatePaths(rootpath)
+        self.generatePaths(rootpath.replace("/", sep))
 
         # Initialize window
         self.initwindow(Tk)
@@ -156,20 +157,20 @@ class MainWindow():
         # self.canvas_gui.grid(row=1, column=0, rowspan=4, sticky=FILL)
 
         # Navigation buttons
-        self.lab_context_label = tk.Label(main, text="Navigation")
-        self.lab_context_label.grid(row=rowInOrder(1), sticky=tk.W, column=1)
+        # self.lab_context_label = tk.Label(main, text="Navigation")
+        # self.lab_context_label.grid(row=rowInOrder(1), sticky=tk.W, column=1)
         self.btn_ref = tk.Button(
             main, text="Open", takefocus=False, command=self.openDir)
-        self.btn_ref.grid(row=inOrderList[1], column=1, sticky=tk.E)
-
-        self.btn_skip = tk.Button(
-            main, text="Skip", takefocus=False, command=self.nextImage)
-        self.btn_skip.grid(row=rowInOrder(1), column=1, sticky=tk.E)
+        self.btn_ref.grid(row=rowInOrder(1), column=1, sticky=tk.W)
         self.btn_ref = tk.Button(
             main, text="Refresh", takefocus=False, command=(
                 lambda: (self.reloadDirContext(), self.imageUpdate()))
         )
         self.btn_ref.grid(row=inOrderList[1], column=1)
+
+        self.btn_skip = tk.Button(
+            main, text="Skip", takefocus=False, command=self.nextImage)
+        self.btn_skip.grid(row=rowInOrder(1), column=1, sticky=tk.E)
         self.btn_back = tk.Button(
             main, text="Prev", takefocus=False, command=self.prevImage)
         self.btn_back.grid(row=inOrderList[1], column=1, sticky=tk.W)
@@ -185,6 +186,8 @@ class MainWindow():
                 self.str_curfile.set(
                     self.getBestFolder(event.widget.get()))
                 event.widget.configure(bg=GOOD)
+                if self.aggressive.get():
+                    self.submit(entry=self.entry.get())
             except OSError:
                 self.labelFileName()
                 event.widget.configure(bg=BAD)
@@ -200,6 +203,11 @@ class MainWindow():
         self.entry.bind("<Return>", self.submit)
         self.entry.bind("<KeyRelease>", validateCommand)
         self.entry.grid(row=rowInOrder(1), column=1)
+
+        self.aggressive = tk.IntVar()
+        self.check_aggressive = tk.Checkbutton(
+            main, text="Aggressive", variable=self.aggressive)
+        self.check_aggressive.grid(row=inOrderList[1], column=1, sticky=tk.E)
 
         # New folder entry
         self.lab_newfolder = tk.Label(
@@ -258,12 +266,16 @@ class MainWindow():
                     return self.keymap[keys[matches.index(0)]]
             raise EnvironmentError("Ambiguous folder selected")
 
-    def submit(self, event):
+    def submit(self, event=False, entry=""):
         oldFileName = self.filepaths[self.image_index]
-        entry = event.widget.get()
-        if entry == "":
-            self.nextImage()
-            return
+        if event:
+            entry = event.widget.get()
+            if entry == "":
+                self.nextImage()
+                return
+            widget = event.widget
+        else:
+            widget = self.entry
         try:
             choice = self.getBestFolder(entry)
         except EnvironmentError:
@@ -286,7 +298,7 @@ class MainWindow():
         self.undo = lambda self: filemove(dst + oldFileName.split(sep)[-1], oldFileName)
 
         # Clear field
-        event.widget.delete(0, last=tk.END)
+        widget.delete(0, last=tk.END)
         self.nextImage()
 
     def dorename(self, event):
@@ -345,7 +357,7 @@ class MainWindow():
             # Put images in same-level directories
             self.contextglobs = [
                 '{}{sep}*{sep}'.format(rootpath, sep=sep), 
-                '{}{sep}..{sep}'.format(rootpath, sep=sep)
+                '{}{sep}..{sep}..{sep}'.format(rootpath, sep=sep)
             ]
         else:
             # Pull loose images
