@@ -194,12 +194,12 @@ class FileSorter():
         # Setting checkboxes
         self.aggressive = tk.IntVar()
         self.check_aggressive = tk.Checkbutton(
-            main, text="Auto", variable=self.aggressive)
+            main, text="Auto", takefocus=False, variable=self.aggressive)
         self.check_aggressive.grid(row=rowInOrder(1), column=1, sticky=tk.W)
 
         self.confident = tk.IntVar()
         self.check_confident = tk.Checkbutton(
-            main, text="Displace", variable=self.confident)
+            main, text="Displace", takefocus=False, variable=self.confident)
         self.check_confident.grid(row=inOrderList[1], column=1, sticky=tk.E)
 
         # context keys
@@ -249,19 +249,22 @@ class FileSorter():
     # Generators and logic
 
     def getBestFolder(self, entry, fast=False):
-        try:
-            return self.keymap[entry]
-        except KeyError:
-            if entry != "":
-                keys = list(self.keymap.keys())
-                # There is not a perfect mapping
-                matches = [k.find(entry) for k in keys]
-                if matches.count(0) == 1:
-                    match = self.keymap[keys[matches.index(0)]]  # Learn.
-                    print(self.keymap)
-                    self.keymap[entry] = match
-                    return match
-            raise EnvironmentError("Ambiguous folder selected")
+        for possibility in [self.keycache.get(entry), self.keymap.get(entry)]:
+            if possibility is not None:
+                return possibility
+
+        if entry != "":
+            keys = list(self.keymap.keys())
+            # There is not a perfect mapping
+            matches = [k.find(entry) for k in keys]
+            if matches.count(0) == 1:
+                match = self.keymap[keys[matches.index(0)]]
+                print(self.keymap)
+                self.keycache[entry] = match    # Learn.
+                return match
+        raise EnvironmentError("Ambiguous folder selected, could be any of: {}".format(
+            [f[1] for f in zip(matches, self.keymap) if f[0] == 0]
+        ))
 
     def generateContextKey(self, context, map_):
         self.listbox_context.configure(state=tk.NORMAL)
@@ -318,15 +321,16 @@ class FileSorter():
             self.labelFileName()
             event.widget.configure(bg=BAD)
 
-    # def backspace(self, event): 
-    #     if event.widget.get() == "": 
-    #         self.prevImage() 
- 
+    # def backspace(self, event):
+    #     if event.widget.get() == "":
+    #         self.prevImage()
+
     # Backend updates
 
     def reloadDirContext(self):
         self.context = sum([glob(a) for a in self.contextglobs], [])
         self.keymap = makeMappings(self.context)
+        self.keycache = {}
         self.generateContextKey(self.context, self.keymap)
 
     def reloadImages(self):
@@ -353,7 +357,7 @@ class FileSorter():
 
         if len(self.filepaths) == 0:
             return self.str_curfile.set("No more images found!")
- 
+
         filename = self.filepaths[self.image_index]
 
         maxwidth = self.canvas.winfo_width()
