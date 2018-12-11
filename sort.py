@@ -277,20 +277,21 @@ class FileSorter():
 
     def generatePaths(self, rootpath):
         print("Generating paths for: {}".format(rootpath))
+        # Pull loose images
+        self.imageglobs = [
+            "{}{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
+
         if os.path.exists("{}{sep}unsorted".format(rootpath, sep=sep)):
-            # Pull images from unsorted
-            self.imagefoldername = "unsorted"
-            self.imageglobs = [
-                "{}{sep}unsorted{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
             # Put images in same-level directories
             self.contextglobs = [
                 '{}{sep}*{sep}'.format(rootpath, sep=sep),
                 '{}{sep}..{sep}'.format(rootpath, sep=sep)
             ]
+            
+            # Pull images from unsorted too
+            self.imageglobs += [
+                "{}{sep}unsorted{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
         else:
-            # Pull loose images
-            self.imageglobs = [
-                "{}{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
             # Put images in parent directories
             self.contextglobs = [
                 '{}{sep}..{sep}*{sep}'.format(rootpath, sep=sep),
