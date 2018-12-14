@@ -431,9 +431,12 @@ class FileSorter():
 
         # Clear field
         widget.delete(0, last=tk.END)
-        widget.config(state='disabled')
-        widget.after(600, lambda: (widget.config(
-            state='normal'), widget.delete(0, last=tk.END)))
+
+        # If auto, pause to prevent error
+        if self.aggressive.get():
+            widget.config(state='disabled')
+            widget.after(600, lambda: (widget.config(
+                state='normal'), widget.delete(0, last=tk.END)))
 
         # prev_aggression = self.aggressive.get()
         # self.aggressive.set(False)
