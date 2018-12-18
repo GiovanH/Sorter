@@ -1,30 +1,21 @@
 import tkinter as tk
-from glob import glob
-import argparse
-import shutil
-import os
-import traceback
-import errno
+import threading
+
 from PIL import ImageTk, Image
-from tkinter import filedialog
-from math import floor
+from tkinter import filedialog, messagebox
+
+import shutil
+from glob import glob
+import os
 from os.path import sep
-from tkinter import messagebox
 from send2trash import send2trash
 
+import traceback
+import errno
+import argparse
+from math import floor
+from time import sleep
 
-def nop(self):
-    return None
-
-
-"""
-TODO:
-Backend:
-
-Frontend:
-Resize image to frame
-Maybe a landscape layout to maximize screen space?
-"""
 
 FILL = tk.N + tk.S + tk.E + tk.W
 WFILL = tk.E + tk.W
@@ -75,6 +66,10 @@ def filemove(src, dst):
         print(e.errno, errno.EEXIST, e.errno == errno.EEXIST)
         traceback.print_exc()
 
+def trash(file):
+    print("Trashing {}".format(file))
+    send2trash(file)
+    print("Trashed {}".format(file))
 
 class FileSorter():
 
@@ -287,7 +282,7 @@ class FileSorter():
                 '{}{sep}*{sep}'.format(rootpath, sep=sep),
                 '{}{sep}..{sep}'.format(rootpath, sep=sep)
             ]
-            
+
             # Pull images from unsorted too
             self.imageglobs += [
                 "{}{sep}unsorted{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
@@ -450,7 +445,10 @@ class FileSorter():
         confirmed = messagebox.askyesno(
             "Confirm", "{}\nAre you sure you want to delete this file?\n(The file will be trashed, and semi-recoverable.)".format(fileToDelete))
         if confirmed:
-            send2trash(fileToDelete)
+            threading.Thread(
+                name="rm {}".format(fileToDelete),
+                target=trash, args=(fileToDelete,)).start()
+            # send2trash(fileToDelete)
             self.filepaths.remove(fileToDelete)
             self.imageUpdate()
 
@@ -466,6 +464,9 @@ class FileSorter():
             entry,
             oldFileName.split(".")[-1]
         )
+        threading.Thread(
+            name="{} -> {}".format(oldFileName, newFileName),
+            target=doFileRename, args=(oldFileName, newFileName,), kwargs={'confident': (self.confident.get() == 1)}).start()
         doFileRename(oldFileName, newFileName,
                      confident=(self.confident.get() == 1))
         self.undo.append(lambda self: doFileRename(
@@ -501,17 +502,33 @@ class FileSorter():
             return
         op = self.undo.pop()
         op(self)
-        self.image_index -= 1
         self.reloadImages()
         self.imageUpdate()
 
 
-ap = argparse.ArgumentParser()
-ap.add_argument("-r", "--root",
-                help="Root folder. Should contain folders, one of which is named unsorted.")
-args = ap.parse_args()
+# threading.Thread(name=ans, target=renameDir, args=(path, ans, )).start()
+def run_threaded():
+    try:
+        ap = argparse.ArgumentParser()
+        ap.add_argument("-r", "--root",
+                        help="Root folder. Should contain folders, one of which is named unsorted.")
+        args = ap.parse_args()
+
+        Tk = tk.Tk()
+        FileSorter(Tk, args.root)
+        Tk.mainloop()
+    except (Exception, KeyboardInterrupt) as e:
+        # Postmortem on uncaught exceptions
+        traceback.print_exc()
+
+    # Cleanup
+    while (len(threading.active_count()) > 0):
+        c = threading.active_count()
+        print("Waiting for {} job{} to finish:".format(c, "s" if c > 1 else None))
+        print(threading.enumerate())
+        sleep(0.8)
+    print("Finished.")
 
 
-Tk = tk.Tk()
-FileSorter(Tk, args.root)
-Tk.mainloop()
+if __name__ == "__main__":
+    run_threaded()
