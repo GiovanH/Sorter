@@ -16,6 +16,7 @@ import argparse
 from math import floor
 from time import sleep
 
+# Todo: Highlight context entries.
 
 FILL = tk.N + tk.S + tk.E + tk.W
 WFILL = tk.E + tk.W
@@ -242,33 +243,45 @@ class FileSorter():
         self.str_curfile.set(prettyname)
 
     # Generators and logic
-
     def getBestFolder(self, entry, fast=False):
+        gbf = self.getBestFolders(entry, fast=fast)
+        print(gbf)
+        if len(gbf) == 1:
+            return self.keymap[self.keymap_keys[gbf[0]]]
+        else:
+            raise EnvironmentError("Ambiguous folder selected, could be any of: {}".format(gbf))
+
+    def getBestFolders(self, entry, fast=False):
         for possibility in [self.keycache.get(entry), self.keymap.get(entry)]:
             if possibility is not None:
-                return possibility
+                return [possibility]
 
         if entry != "":
-            keys = list(self.keymap.keys())
+            keys = self.keymap_keys
             # There is not a perfect mapping
-            matches = [k.find(entry) for k in keys]
-            if matches.count(0) == 1:
-                match = self.keymap[keys[matches.index(0)]]
-                print(self.keymap)
-                self.keycache[entry] = match    # Learn.
-                return match
-        raise EnvironmentError("Ambiguous folder selected, could be any of: {}".format(
-            [f[1] for f in zip(matches, self.keymap) if f[0] == 0]
-        ))
+            matchindices = [k.find(entry) for k in keys]
+            matches = [i for i in range(0, len(matchindices)) if matchindices[i] == 0]
+            if len(matches) == 1:
+                self.keycache[entry] = matches[0]    # Learn.
+                print("\n".join(self.keycache.keys()))
+            return matches
 
-    def generateContextKey(self, context, map_):
+    def generateContextKey(self):
         self.listbox_context.configure(state=tk.NORMAL)
         self.listbox_context.delete(0, self.listbox_context.size())
-        map_prime = {map_[key]: key for key in map_.keys()}
-        for val in context:
+        for val in self.keymap_keys:
             self.listbox_context.insert(
-                tk.END, "{}".format(map_prime[val][0:15]))
-        self.listbox_context.configure(state=tk.DISABLED)
+                tk.END, "{}".format(val[0:15]))
+        # self.listbox_context.configure(state=tk.DISABLED)
+
+    def updateContextSelections(self, matches):
+        self.listbox_context.configure(state=tk.NORMAL)
+        self.listbox_context.selection_clear(0, tk.END)
+        if len(matches) == 0: 
+            self.listbox_context.configure(state=tk.DISABLED)
+            return
+        for index in matches:
+            self.listbox_context.selection_set(index)
 
     def generatePaths(self, rootpath):
         print("Generating paths for: {}".format(rootpath))
@@ -306,14 +319,16 @@ class FileSorter():
 
         if fieldGet == "":
             event.widget.configure(bg=NORMAL)
+            self.updateContextSelections([])
             return
-        try:
-            self.str_curfile.set(
-                self.getBestFolder(fieldGet))
+        bestFolders = self.getBestFolders(fieldGet)
+        self.updateContextSelections(bestFolders)
+        if len(bestFolders) == 1:
+            self.str_curfile.set(self.getBestFolder(fieldGet))
             event.widget.configure(bg=GOOD)
             if self.aggressive.get():
                 self.submit(entry=fieldGet)
-        except OSError:
+        else:
             self.labelFileName()
             event.widget.configure(bg=BAD)
 
@@ -326,8 +341,9 @@ class FileSorter():
     def reloadDirContext(self):
         self.context = sum([glob(a) for a in self.contextglobs], [])
         self.keymap = makeMappings(self.context)
+        self.keymap_keys = list(self.keymap.keys())  # Constant order
         self.keycache = {}
-        self.generateContextKey(self.context, self.keymap)
+        self.generateContextKey()
 
     def reloadImages(self):
         # self.filepaths = sorted(
@@ -522,9 +538,9 @@ def run_threaded():
         traceback.print_exc()
 
     # Cleanup
-    while (len(threading.active_count()) > 0):
+    while (threading.active_count() > 1):
         c = threading.active_count()
-        print("Waiting for {} job{} to finish:".format(c, "s" if c > 1 else None))
+        print("Waiting for {} job{} to finish:".format(c, "s" if c > 1 else ""))
         print(threading.enumerate())
         sleep(0.8)
     print("Finished.")
