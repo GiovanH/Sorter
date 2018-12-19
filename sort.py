@@ -67,10 +67,12 @@ def filemove(src, dst):
         print(e.errno, errno.EEXIST, e.errno == errno.EEXIST)
         traceback.print_exc()
 
+
 def trash(file):
     print("Trashing {}".format(file))
     send2trash(file)
     print("Trashed {}".format(file))
+
 
 class FileSorter():
 
@@ -158,7 +160,7 @@ class FileSorter():
         self.btn_back.grid(row=inOrderList[1], column=1, sticky=tk.W)
 
         def highlightEntry():
-            return tk.Entry(main, highlightthickness=2)
+            return tk.Entry(main, highlightthickness=2, takefocus=True)
 
         # Entry text field
         self.lab_context_label = tk.Label(
@@ -169,6 +171,7 @@ class FileSorter():
         self.entry.bind("<Return>", self.submit)
         self.entry.bind("<KeyRelease>", self.processEntryInput)
         self.entry.grid(row=rowInOrder(1), column=1)
+        self.entry.focus()
 
         # New folder entry
         self.lab_newfolder = tk.Label(
@@ -277,7 +280,7 @@ class FileSorter():
     def updateContextSelections(self, matches):
         self.listbox_context.configure(state=tk.NORMAL)
         self.listbox_context.selection_clear(0, tk.END)
-        if len(matches) == 0: 
+        if len(matches) == 0:
             self.listbox_context.configure(state=tk.DISABLED)
             return
         for index in matches:
