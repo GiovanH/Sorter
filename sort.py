@@ -1,5 +1,5 @@
 import tkinter as tk
-import threading
+import loom
 
 from PIL import ImageTk, Image
 from tkinter import filedialog, messagebox
@@ -14,9 +14,8 @@ import traceback
 import errno
 import argparse
 from math import floor
-from time import sleep
 
-# Todo: Highlight context entries.
+# Todo: Replace some formatting with os.path.join
 
 FILL = tk.N + tk.S + tk.E + tk.W
 WFILL = tk.E + tk.W
@@ -248,7 +247,6 @@ class FileSorter():
     # Generators and logic
     def getBestFolder(self, entry, fast=False):
         gbf = self.getBestFolders(entry, fast=fast)
-        print(gbf)
         if len(gbf) == 1:
             return self.keymap[self.keymap_keys[gbf[0]]]
         else:
@@ -464,9 +462,9 @@ class FileSorter():
         confirmed = messagebox.askyesno(
             "Confirm", "{}\nAre you sure you want to delete this file?\n(The file will be trashed, and semi-recoverable.)".format(fileToDelete))
         if confirmed:
-            threading.Thread(
+            loom.thread(
                 name="rm {}".format(fileToDelete),
-                target=trash, args=(fileToDelete,)).start()
+                target=trash, args=(fileToDelete,))
             # send2trash(fileToDelete)
             self.filepaths.remove(fileToDelete)
             self.imageUpdate()
@@ -483,9 +481,9 @@ class FileSorter():
             entry,
             oldFileName.split(".")[-1]
         )
-        threading.Thread(
+        loom.thread(
             name="{} -> {}".format(oldFileName, newFileName),
-            target=doFileRename, args=(oldFileName, newFileName,), kwargs={'confident': (self.confident.get() == 1)}).start()
+            target=doFileRename, args=(oldFileName, newFileName,), kwargs={'confident': (self.confident.get() == 1)})
         doFileRename(oldFileName, newFileName,
                      confident=(self.confident.get() == 1))
         self.undo.append(lambda self: doFileRename(
@@ -541,12 +539,7 @@ def run_threaded():
         traceback.print_exc()
 
     # Cleanup
-    while (threading.active_count() > 1):
-        c = threading.active_count()
-        print("Waiting for {} job{} to finish:".format(c, "s" if c > 1 else ""))
-        print(threading.enumerate())
-        sleep(0.8)
-    print("Finished.")
+    loom.threadWait(1, 1)
 
 
 if __name__ == "__main__":
