@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 import loom
 
 from PIL import ImageTk, Image
@@ -126,7 +127,7 @@ class FileSorter():
         # # Header stuff # #
         # current filename label
         self.str_curfile = tk.StringVar(value="NaN")
-        self.lab_curfile = tk.Label(main, textvariable=self.str_curfile)
+        self.lab_curfile = ttk.Label(main, textvariable=self.str_curfile)
         self.lab_curfile.grid(row=0, column=0, columnspan=2)
 
         # # Sidebar stuff # #
@@ -135,26 +136,26 @@ class FileSorter():
         # self.canvas_gui.grid(row=1, column=0, rowspan=4, sticky=FILL)
 
         # Navigation buttons
-        # self.lab_context_label = tk.Label(main, text="Navigation")
+        # self.lab_context_label = ttk.Label(main, text="Navigation")
         # self.lab_context_label.grid(row=rowInOrder(1), sticky=tk.W, column=1)
-        self.btn_ref = tk.Button(
+        self.btn_ref = ttk.Button(
             main, text="Open", takefocus=False, command=self.openDir)
         self.btn_ref.grid(row=rowInOrder(1), column=1, sticky=tk.W)
-        self.btn_ref = tk.Button(
+        self.btn_ref = ttk.Button(
             main, text="Refresh", takefocus=False, command=(
                 lambda: (self.reloadDirContext(), self.imageUpdate()))
         )
         self.btn_ref.grid(row=inOrderList[1], column=1)
-        # self.btn_clear = tk.Button(
+        # self.btn_clear = ttk.Button(
         #     main, text="Clear", takefocus=False, command=(
         #         lambda: (self.generatePaths("/dev/null"), self.reloadDirContext(), self.imageUpdate()))
         # )
         # self.btn_clear.grid(row=inOrderList[1], column=1, sticky=tk.E)
 
-        self.btn_skip = tk.Button(
+        self.btn_skip = ttk.Button(
             main, text="Skip", takefocus=False, command=self.nextImage)
         self.btn_skip.grid(row=rowInOrder(1), column=1, sticky=tk.E)
-        self.btn_back = tk.Button(
+        self.btn_back = ttk.Button(
             main, text="Prev", takefocus=False, command=self.prevImage)
         self.btn_back.grid(row=inOrderList[1], column=1, sticky=tk.W)
 
@@ -162,7 +163,7 @@ class FileSorter():
             return tk.Entry(main, highlightthickness=2, takefocus=True)
 
         # Entry text field
-        self.lab_context_label = tk.Label(
+        self.lab_context_label = ttk.Label(
             main, text="Move to folder ID:")
         self.lab_context_label.grid(row=rowInOrder(1), column=1, sticky=tk.W)
 
@@ -173,7 +174,7 @@ class FileSorter():
         self.entry.focus()
 
         # New folder entry
-        self.lab_newfolder = tk.Label(
+        self.lab_newfolder = ttk.Label(
             main, text="Move to new folder:")
         self.lab_newfolder.grid(row=rowInOrder(1), column=1)
 
@@ -182,7 +183,7 @@ class FileSorter():
         self.entry_newfolder.grid(row=rowInOrder(1), column=1)
 
         # Rename
-        self.lab_rename = tk.Label(main, text="Rename")
+        self.lab_rename = ttk.Label(main, text="Rename")
         self.lab_rename.grid(row=rowInOrder(1), column=1, sticky=tk.W)
 
         self.entry_rename = highlightEntry()
@@ -201,14 +202,14 @@ class FileSorter():
         self.check_confident.grid(row=inOrderList[1], column=1, sticky=tk.E)
 
         # context keys
-        self.lab_context_label = tk.Label(
+        self.lab_context_label = ttk.Label(
             main, text="Folder IDs:")
         self.lab_context_label.grid(row=rowInOrder(1), column=1)
 
         # self.str_context = tk.StringVar()
         contextRow = rowInOrder(1)
         self.listbox_context = tk.Listbox(
-            main, state=tk.DISABLED, takefocus=False, disabledforeground=self.lab_curfile.cget('fg'), relief=tk.GROOVE)
+            main, state=tk.DISABLED, takefocus=False, relief=tk.GROOVE)
         self.listbox_context.grid(row=contextRow, column=1, sticky=FILL)
         top.rowconfigure(contextRow, weight=1)
 
