@@ -74,162 +74,56 @@ def trash(file):
     print("Trashed {}".format(file))
 
 
-class FileSorter():
-
-    # Init and window management
-
-    def __init__(self, Tk, rootpath):
+class FileSorter(tk.Tk):
+    def __init__(self, rootpath, *args, **kwargs):
+        super(FileSorter, self).__init__(*args, **kwargs)
 
         self.image_index = 0
         self.str_context = tk.StringVar()
         self.undo = []
 
-        # Store arguments.
-        self.main = Tk
-
-        if rootpath is None:
-            rootpath = filedialog.askdirectory()
-
-        if rootpath == '':
-            os.abort()
         # Validate arguments
-        self.generatePaths(rootpath.replace("/", sep))
+        # opendir does this now
+        # self.generatePaths(rootpath.replace("/", sep))
 
-        # Initialize window
-        self.initwindow(Tk)
+        self.initwindow()
 
-        # Initialize data
-        self.reloadDirContext()
-        self.reloadImages()
+        self.openDir(rootpath)
 
-        # Initialize images
-        self.imageUpdate()
+        self.bind("<Control-z>", self.doUndo)
+        self.bind("<Delete>", self.delete)
+        self.bind("<Right>", self.nextImage)
+        self.bind("<Left>", self.prevImage)
 
-    def initwindow(self, main):
-        top = self.main.winfo_toplevel()
-
-        top.bind("<Control-z>", self.doUndo)
-        top.bind("<Delete>", self.delete)
-        top.bind("<Right>", self.nextImage)
-        top.bind("<Left>", self.prevImage)
-
-        columns = 2
-        inOrderList = [2 for i in range(0, columns)]
-        height = 0
-
-        # Helper function to increment in-order elements
-        def rowInOrder(col):
-            nonlocal height
-            inOrderList[col] += 1
-            height = max(inOrderList)
-            return inOrderList[col]
-
+        self.mainloop()
+    
+    def initwindow(self):
         # # Header stuff # #
         # current filename label
         self.str_curfile = tk.StringVar(value="NaN")
-        self.lab_curfile = ttk.Label(main, textvariable=self.str_curfile)
+        self.lab_curfile = tk.Label(textvariable=self.str_curfile)
         self.lab_curfile.grid(row=0, column=0, columnspan=2)
 
-        # # Sidebar stuff # #
-        # Backer
-        # self.canvas_gui = tk.Canvas(main)
-        # self.canvas_gui.grid(row=1, column=0, rowspan=4, sticky=FILL)
-
-        # Navigation buttons
-        # self.lab_context_label = ttk.Label(main, text="Navigation")
-        # self.lab_context_label.grid(row=rowInOrder(1), sticky=tk.W, column=1)
-        self.btn_ref = ttk.Button(
-            main, text="Open", takefocus=False, command=self.openDir)
-        self.btn_ref.grid(row=rowInOrder(1), column=1, sticky=tk.W)
-        self.btn_ref = ttk.Button(
-            main, text="Refresh", takefocus=False, command=(
-                lambda: (self.reloadDirContext(), self.imageUpdate()))
-        )
-        self.btn_ref.grid(row=inOrderList[1], column=1)
-        # self.btn_clear = ttk.Button(
-        #     main, text="Clear", takefocus=False, command=(
-        #         lambda: (self.generatePaths("/dev/null"), self.reloadDirContext(), self.imageUpdate()))
-        # )
-        # self.btn_clear.grid(row=inOrderList[1], column=1, sticky=tk.E)
-
-        self.btn_skip = ttk.Button(
-            main, text="Skip", takefocus=False, command=self.nextImage)
-        self.btn_skip.grid(row=rowInOrder(1), column=1, sticky=tk.E)
-        self.btn_back = ttk.Button(
-            main, text="Prev", takefocus=False, command=self.prevImage)
-        self.btn_back.grid(row=inOrderList[1], column=1, sticky=tk.W)
-
-        def highlightEntry():
-            return tk.Entry(main, highlightthickness=2, takefocus=True)
-
-        # Entry text field
-        self.lab_context_label = ttk.Label(
-            main, text="Move to folder ID:")
-        self.lab_context_label.grid(row=rowInOrder(1), column=1, sticky=tk.W)
-
-        self.entry = highlightEntry()
-        self.entry.bind("<Return>", self.submit)
-        self.entry.bind("<KeyRelease>", self.processEntryInput)
-        self.entry.grid(row=rowInOrder(1), column=1)
-        self.entry.focus()
-
-        # New folder entry
-        self.lab_newfolder = ttk.Label(
-            main, text="Move to new folder:")
-        self.lab_newfolder.grid(row=rowInOrder(1), column=1)
-
-        self.entry_newfolder = highlightEntry()
-        self.entry_newfolder.bind("<Return>", self.newfolder)
-        self.entry_newfolder.grid(row=rowInOrder(1), column=1)
-
-        # Rename
-        self.lab_rename = ttk.Label(main, text="Rename")
-        self.lab_rename.grid(row=rowInOrder(1), column=1, sticky=tk.W)
-
-        self.entry_rename = highlightEntry()
-        self.entry_rename.grid(row=rowInOrder(1), column=1)
-        self.entry_rename.bind("<Return>", self.dorename)
-
-        # Setting checkboxes
-        self.aggressive = tk.IntVar()
-        self.check_aggressive = tk.Checkbutton(
-            main, text="Auto", takefocus=False, variable=self.aggressive)
-        self.check_aggressive.grid(row=rowInOrder(1), column=1, sticky=tk.W)
-
-        self.confident = tk.IntVar()
-        self.check_confident = tk.Checkbutton(
-            main, text="Displace", takefocus=False, variable=self.confident)
-        self.check_confident.grid(row=inOrderList[1], column=1, sticky=tk.E)
-
-        # context keys
-        self.lab_context_label = ttk.Label(
-            main, text="Folder IDs:")
-        self.lab_context_label.grid(row=rowInOrder(1), column=1)
-
-        # self.str_context = tk.StringVar()
-        contextRow = rowInOrder(1)
-        self.listbox_context = tk.Listbox(
-            main, state=tk.DISABLED, takefocus=False, relief=tk.GROOVE)
-        self.listbox_context.grid(row=contextRow, column=1, sticky=FILL)
-        top.rowconfigure(contextRow, weight=1)
-
         # Canvas stuff
-        # canvas for image
-        self.canvas = tk.Canvas(main)  # , bg="#AA0001"
-        self.canvas.grid(row=1, column=0, rowspan=height, sticky=FILL)
-
-        # Allow smart grid resizing for the canvas cell
-        # top.rowconfigure(1, weight=1)
-        top.columnconfigure(0, weight=1)
+        self.canvas = tk.Canvas()
+        self.canvas.grid(column=0, row=1, sticky=FILL)
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, minsize=160)
+        self.rowconfigure(1, weight=1)
 
         # set first image on canvas, an ImageTk.PhotoImage
         self.image_on_canvas = self.canvas.create_image(
             0, 0, anchor=tk.N + tk.W)
 
-    def openDir(self):
-        newdir = filedialog.askdirectory().replace("/", sep)
-        if newdir == '':
-            return
+        self.frame_sidebar = SidebarFrame(self)
+        self.frame_sidebar.config(bd=3, relief=tk.RIDGE)
+        self.frame_sidebar.grid(row=1, column=1, sticky="NSEW")
+
+    def openDir(self, newdir=None):
+        if not newdir:
+            newdir = filedialog.askdirectory().replace("/", sep)
+            if newdir == '':
+                os.abort()
         self.generatePaths(newdir)
 
         # Initialize data
@@ -269,21 +163,21 @@ class FileSorter():
             return matches
 
     def generateContextKey(self):
-        self.listbox_context.configure(state=tk.NORMAL)
-        self.listbox_context.delete(0, self.listbox_context.size())
+        self.frame_sidebar.listbox_context.configure(state=tk.NORMAL)
+        self.frame_sidebar.listbox_context.delete(0, self.frame_sidebar.listbox_context.size())
         for val in self.keymap_keys:
-            self.listbox_context.insert(
+            self.frame_sidebar.listbox_context.insert(
                 tk.END, "{}".format(val[0:15]))
-        # self.listbox_context.configure(state=tk.DISABLED)
+        # self.frame_sidebar.listbox_context.configure(state=tk.DISABLED)
 
     def updateContextSelections(self, matches):
-        self.listbox_context.configure(state=tk.NORMAL)
-        self.listbox_context.selection_clear(0, tk.END)
+        self.frame_sidebar.listbox_context.configure(state=tk.NORMAL)
+        self.frame_sidebar.listbox_context.selection_clear(0, tk.END)
         if len(matches) == 0:
-            self.listbox_context.configure(state=tk.DISABLED)
+            self.frame_sidebar.listbox_context.configure(state=tk.DISABLED)
             return
         for index in matches:
-            self.listbox_context.selection_set(index)
+            self.frame_sidebar.listbox_context.selection_set(index)
 
     def generatePaths(self, rootpath):
         print("Generating paths for: {}".format(rootpath))
@@ -309,30 +203,6 @@ class FileSorter():
             ]
             rootpath += "{sep}..{sep}".format(sep=sep)
         self.rootpath = rootpath  # Where we make new folders
-
-    def processEntryInput(self, event):
-        GOOD = "#AAFFAA"
-        BAD = "#FFAAAA"
-        NORMAL = "#FFFFFF"
-
-        fieldGet = event.widget.get()
-        if event.keycode == 32:
-            fieldGet = fieldGet[:-1]  # Delete space character
-
-        if fieldGet == "":
-            event.widget.configure(bg=NORMAL)
-            self.updateContextSelections([])
-            return
-        bestFolders = self.getBestFolders(fieldGet)
-        self.updateContextSelections(bestFolders)
-        if len(bestFolders) == 1:
-            self.str_curfile.set(self.getBestFolder(fieldGet))
-            event.widget.configure(bg=GOOD)
-            if self.aggressive.get():
-                self.submit(entry=fieldGet)
-        else:
-            self.labelFileName()
-            event.widget.configure(bg=BAD)
 
     # def backspace(self, event):
     #     if event.widget.get() == "":
@@ -524,7 +394,139 @@ class FileSorter():
         self.imageUpdate()
 
 
-# threading.Thread(name=ans, target=renameDir, args=(path, ans, )).start()
+class SidebarFrame(tk.Frame):
+
+    # Init and window management
+
+    def __init__(self, parent, *args, **kwargs):
+        tk.Frame.__init__(self, *args, **kwargs)
+
+        linkedFunctions = [
+            "getBestFolders",
+            "getBestFolder",
+            "labelFileName",
+            "str_curfile",
+            "nextImage",
+            "prevImage",
+            "openDir",
+            "submit",
+            "newfolder",
+            "dorename",
+            "imageUpdate",
+            "reloadDirContext",
+            "updateContextSelections"
+        ]
+        for f in linkedFunctions:
+            self.__setattr__(f, parent.__getattribute__(f))
+
+        # Initialize window
+        self.initwindow(**kwargs)
+
+    def initwindow(self, **kwargs):
+
+        inOrderRow = 0
+
+        # Helper function to increment in-order elements
+        def rowInOrder():
+            nonlocal inOrderRow
+            inOrderRow += 1
+            return inOrderRow
+
+        btn_ref = ttk.Button(self, text="Open", takefocus=False, command=self.openDir)
+        btn_ref.grid(row=rowInOrder(), sticky=tk.W)
+        btn_ref = ttk.Button(self, text="Refresh", takefocus=False, command=(
+            lambda: (self.reloadDirContext(), self.imageUpdate()))
+        )
+        btn_ref.grid(row=inOrderRow, sticky=tk.E)
+        
+        # self.btn_clear = ttk.Button(
+        #     text="Clear", takefocus=False, command=(
+        #         lambda: (self.generatePaths("/dev/null"), self.reloadDirContext(), self.imageUpdate()))
+        # )
+        # self.btn_clear.grid(row=inOrderRow, sticky=tk.E)
+
+        btn_back = ttk.Button(self, text="Prev", takefocus=False, command=self.prevImage)
+        btn_back.grid(row=rowInOrder(), sticky=tk.W)
+        btn_skip = ttk.Button(self, text="Skip", takefocus=False, command=self.nextImage)
+        btn_skip.grid(row=inOrderRow, sticky=tk.E)
+
+        def highlightEntry():
+            return tk.Entry(self, highlightthickness=2, takefocus=True)
+
+        # Entry text field
+        lab_context_label = ttk.Label(self, text="Move to folder ID:")
+        lab_context_label.grid(row=rowInOrder())
+
+        self.entry = highlightEntry()
+        self.entry.bind("<Return>", self.submit)
+        self.entry.bind("<KeyRelease>", self.processEntryInput)
+        self.entry.grid(row=rowInOrder(), sticky="WE")
+        self.entry.focus()
+
+        # New folder entry
+        lab_newfolder = ttk.Label(self, text="Move to new folder:")
+        lab_newfolder.grid(row=rowInOrder())
+
+        self.entry_newfolder = highlightEntry()
+        self.entry_newfolder.bind("<Return>", self.newfolder)
+        self.entry_newfolder.grid(row=rowInOrder(), sticky="WE")
+
+        # Rename
+        lab_rename = ttk.Label(self, text="Rename")
+        lab_rename.grid(row=rowInOrder())
+
+        self.entry_rename = highlightEntry()
+        self.entry_rename.grid(row=rowInOrder(), sticky="WE")
+        self.entry_rename.bind("<Return>", self.dorename)
+
+        # Setting checkboxes
+        self.aggressive = tk.IntVar()
+        check_aggressive = tk.Checkbutton(
+            self, text="Auto", takefocus=False, variable=self.aggressive)
+        check_aggressive.grid(row=rowInOrder(), sticky=tk.W)
+
+        self.confident = tk.IntVar()
+        check_confident = tk.Checkbutton(
+            self, text="Displace", takefocus=False, variable=self.confident)
+        check_confident.grid(row=inOrderRow, sticky=tk.E)
+
+        # context keys
+        lab_context_label = ttk.Label(self, text="Folder IDs:")
+        lab_context_label.grid(row=rowInOrder())
+
+        # self.str_context = tk.StringVar()
+        self.listbox_context = tk.Listbox(
+            self, state=tk.DISABLED, takefocus=False, relief=tk.GROOVE)
+        self.listbox_context.grid(row=rowInOrder(), sticky=FILL)
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(inOrderRow, weight=1)
+
+    def processEntryInput(self, event):
+        GOOD = "#AAFFAA"
+        BAD = "#FFAAAA"
+        NORMAL = "#FFFFFF"
+
+        fieldGet = event.widget.get()
+        if event.keycode == 32:
+            fieldGet = fieldGet[:-1]  # Delete space character
+
+        if fieldGet == "":
+            event.widget.configure(bg=NORMAL)
+            self.updateContextSelections([])
+            return
+        bestFolders = self.getBestFolders(fieldGet)
+        self.updateContextSelections(bestFolders)
+        if len(bestFolders) == 1:
+            self.str_curfile.set(self.getBestFolder(fieldGet))
+            event.widget.configure(bg=GOOD)
+            if self.aggressive.get():
+                self.submit(entry=fieldGet)
+        else:
+            self.labelFileName()
+            event.widget.configure(bg=BAD)
+
+
 def run_threaded():
     try:
         ap = argparse.ArgumentParser()
@@ -532,9 +534,7 @@ def run_threaded():
                         help="Root folder. Should contain folders, one of which is named unsorted.")
         args = ap.parse_args()
 
-        Tk = tk.Tk()
-        FileSorter(Tk, args.root)
-        Tk.mainloop()
+        FileSorter(args.root)
     except (Exception, KeyboardInterrupt) as e:
         # Postmortem on uncaught exceptions
         traceback.print_exc()
