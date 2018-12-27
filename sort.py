@@ -148,9 +148,11 @@ class FileSorter(tk.Tk):
             raise EnvironmentError("Ambiguous folder selected, could be any of: {}".format(gbf))
 
     def getBestFolders(self, entry, fast=False):
-        for possibility in [self.keycache.get(entry), self.keymap.get(entry)]:
-            if possibility is not None:
-                return [possibility]
+        if self.keycache.get(entry) is not None:
+            return [self.keycache.get(entry)]
+
+        if entry in self.keymap_keys:
+            return [self.keymap_keys.index(entry)]
 
         if entry != "":
             keys = self.keymap_keys
@@ -159,7 +161,7 @@ class FileSorter(tk.Tk):
             matches = [i for i in range(0, len(matchindices)) if matchindices[i] == 0]
             if len(matches) == 1:
                 self.keycache[entry] = matches[0]    # Learn.
-                print("\n".join(self.keycache.keys()))
+                print("Learning: {} : {}".format(entry, matches[0]))
             return matches
 
     def generateContextKey(self):
@@ -295,7 +297,7 @@ class FileSorter(tk.Tk):
                 return
             widget = event.widget
         else:
-            widget = self.entry
+            widget = self.frame_sidebar.entry
         try:
             choice = self.getBestFolder(entry)
         except EnvironmentError:
@@ -316,7 +318,7 @@ class FileSorter(tk.Tk):
         widget.delete(0, last=tk.END)
 
         # If auto, pause to prevent error
-        if self.aggressive.get():
+        if self.frame_sidebar.aggressive.get():
             widget.config(state='disabled')
             widget.after(600, lambda: (widget.config(
                 state='normal'), widget.delete(0, last=tk.END)))
@@ -354,7 +356,7 @@ class FileSorter(tk.Tk):
         )
         loom.thread(
             name="{} -> {}".format(oldFileName, newFileName),
-            target=doFileRename, args=(oldFileName, newFileName,), kwargs={'confident': (self.confident.get() == 1)})
+            target=doFileRename, args=(oldFileName, newFileName,), kwargs={'confident': (self.frame_sidebar.confident.get() == 1)})
         doFileRename(oldFileName, newFileName,
                      confident=(self.confident.get() == 1))
         self.undo.append(lambda self: doFileRename(
