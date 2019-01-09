@@ -41,9 +41,8 @@ def doFileRename(oldFileName, newFileName, confident=False):
         if confident:
             print("Renaming conflicting file", e.filename2)
             "DISPLACED_"
-            bits = e.filename2.split(sep)
-            doFileRename(e.filename2, sep.join(bits[:-1]) +
-                         "{}DISPLACED_".format(sep) + bits[-1])
+            (folder, file) = os.path.split(e.filename2)
+            doFileRename(e.filename2, os.path.join(folder, "DISPLACED_" + file))
             os.rename(oldFileName, newFileName)
 
 
@@ -121,7 +120,7 @@ class FileSorter(tk.Tk):
 
     def openDir(self, newdir=None):
         if not newdir:
-            newdir = filedialog.askdirectory().replace("/", sep)
+            newdir = os.path.realpath(filedialog.askdirectory())
             if newdir == '':
                 os.abort()
         self.generatePaths(newdir)
@@ -135,7 +134,7 @@ class FileSorter(tk.Tk):
         self.nextImage()
 
     def labelFileName(self):
-        prettyname = self.filepaths[self.image_index].split(sep)[-1]
+        prettyname = os.path.split(self.filepaths[self.image_index])[1]
         # prettyname = self.filelist[self.image_index][0]
         self.str_curfile.set(prettyname)
 
@@ -184,26 +183,26 @@ class FileSorter(tk.Tk):
     def generatePaths(self, rootpath):
         print("Generating paths for: {}".format(rootpath))
         # Pull loose images
-        self.imageglobs = [
-            "{}{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
+        self.imageglobs = [            
+            os.path.join(rootpath, "*." + ext) for ext in IMAGEEXTS]
 
-        if os.path.exists("{}{sep}unsorted".format(rootpath, sep=sep)):
+        if os.path.exists(os.path.join(rootpath, "unsorted")):
             # Put images in same-level directories
             self.contextglobs = [
-                '{}{sep}*{sep}'.format(rootpath, sep=sep),
-                '{}{sep}..{sep}'.format(rootpath, sep=sep)
+                os.path.join(rootpath, "*" + sep),
+                os.path.join(rootpath, ".." + sep)
             ]
 
             # Pull images from unsorted too
             self.imageglobs += [
-                "{}{sep}unsorted{sep}*.{}".format(rootpath, ext, sep=sep) for ext in IMAGEEXTS]
+                os.path.join(rootpath, "unsorted", "*." + ext) for ext in IMAGEEXTS]
         else:
             # Put images in parent directories
             self.contextglobs = [
-                '{}{sep}..{sep}*{sep}'.format(rootpath, sep=sep),
-                '{}{sep}..{sep}..{sep}'.format(rootpath, sep=sep)
+                os.path.join(rootpath, "..", "*" + sep),
+                os.path.join(rootpath, "..", ".." + sep)
             ]
-            rootpath += "{sep}..{sep}".format(sep=sep)
+            rootpath = os.path.join(rootpath, "..")
         self.rootpath = rootpath  # Where we make new folders
 
     # def backspace(self, event):
@@ -306,13 +305,14 @@ class FileSorter(tk.Tk):
                 "Invalid key: {}".format(entry))
             return
         dst = choice
-        usubdir = dst + "unsorted{}".format(sep)
+        usubdir = os.path.join(dst, "unsorted")
         if os.path.exists(usubdir):
             dst = usubdir
         filemove(oldFileName, dst)
+        (folder, file) = os.path.split(oldFileName)
         self.filepaths.remove(oldFileName)
         self.undo.append(lambda self: filemove(
-            dst + oldFileName.split(sep)[-1], oldFileName))
+            os.path.join(dst, file), oldFileName))
 
         # Clear field
         widget.delete(0, last=tk.END)
@@ -348,12 +348,14 @@ class FileSorter(tk.Tk):
             self.nextImage()
             return
         oldFileName = self.filepaths[self.image_index]
-        newFileName = "{}{}{}.{}".format(
-            sep.join(oldFileName.split(sep)[:-1]),
-            sep,
-            entry,
-            oldFileName.split(".")[-1]
-        )
+        (folder, file) = os.path.split(oldFileName)
+        extension = file.split(".")[-1]
+        newFileName = os.path.join(folder, entry, extension)
+        # newFileName = "{}{}{}.{}".format(
+        #     sep.join(oldFileName.split(sep)[:-1]),
+        #     sep,
+        #     entry,
+        # )
         loom.thread(
             name="{} -> {}".format(oldFileName, newFileName),
             target=doFileRename, args=(oldFileName, newFileName,), kwargs={'confident': (self.frame_sidebar.confident.get() == 1)})
@@ -374,7 +376,7 @@ class FileSorter(tk.Tk):
             self.nextImage()
             return
         try:
-            newdir = "{}/{}".format(self.rootpath, newfoldername)
+            newdir = os.path.join(self.rootpath, newfolder)
             os.mkdir(newdir)
             self.reloadDirContext()
             filemove(oldFileName, newdir)
