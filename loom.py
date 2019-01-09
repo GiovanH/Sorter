@@ -19,7 +19,7 @@ def thread(*args, **kwargs):
     # args.get("target")()
     t = threading.Thread(*args, **kwargs)
     t.start()
-    return t
+    return
 
 
 class Loom():
