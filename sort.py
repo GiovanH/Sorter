@@ -159,7 +159,9 @@ class FileSorter(tk.Tk):
         self.openDir(rootpath)
 
         self.bind("<Control-z>", self.doUndo)
-        self.bind("<Delete>", self.delete)
+        self.bind("<Delete>", self.askDelete)
+        self.bind("<Alt-d>", self.fastDelete)
+        self.bind("<Alt-k>", self.nextImage)
         self.bind("<Right>", self.nextImage)
         self.bind("<Left>", self.prevImage)
 
@@ -468,14 +470,17 @@ class FileSorter(tk.Tk):
 
         self.imageUpdate()
 
-    def delete(self, event):
+    def askDelete(self, event):
+        self.delete()
+
+    def fastDelete(self, event):
+        self.delete(preconfirmed=True)
+
+    def delete(self, preconfirmed=False):
         """Delete the currently selected file
-        
-        Args:
-            event: Tk triggering event
         """
         fileToDelete = self.filepaths[self.image_index]
-        confirmed = messagebox.askyesno(
+        confirmed = preconfirmed or messagebox.askyesno(
             "Confirm", "{}\nAre you sure you want to delete this file?\n(The file will be trashed, and semi-recoverable.)".format(fileToDelete))
         if confirmed:
             loom.thread(
@@ -624,7 +629,7 @@ class SidebarFrame(tk.Frame):
 
         def highlightEntry(parent):
             """Quick factory for entries that highlight"""
-            return tk.Entry(parent, highlightthickness=2, takefocus=True)
+            return tk.Entry(parent, takefocus=True, highlightthickness=2)
 
         # Entry text field
         lab_context_label = ttk.Label(self, text="Move to folder ID:")
@@ -632,9 +637,9 @@ class SidebarFrame(tk.Frame):
 
         self.entry = highlightEntry(self)
         self.entry.bind("<Return>", self.submit)
+        # self.entry.bind("<Button-1>", self.focus)
         self.entry.bind("<KeyRelease>", self.processEntryInput)
         self.entry.grid(row=rowInOrder(), sticky="WE")
-        self.entry.focus()
 
         # New folder entry
         lab_newfolder = ttk.Label(self, text="Move to new folder:")
@@ -711,7 +716,7 @@ def run_threaded():
     try:
         ap = argparse.ArgumentParser()
         ap.add_argument("-r", "--root",
-                        help="Root folder. Should contain folders, one of which is named unsorted.")
+                        help="Root folder. Should contain folders, one of which can be named unsorted.")
         args = ap.parse_args()
 
         FileSorter(args.root)
