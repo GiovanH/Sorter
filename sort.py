@@ -1,3 +1,14 @@
+"""sort.py 
+sort images
+
+Attributes:
+    ALWAYS_RESIZE (bool): Always fill image to screen
+    COMPLETION_KEYS (list): Keys that signify completion
+    FILL (TYPE): Tk shortcut for all sticky directions
+    IMAGEEXTS (list): Valid file extensions for images
+    WFILL (TYPE): Tk shortcut for wide sticky directions
+"""
+
 import tkinter as tk
 from tkinter import ttk
 import loom
@@ -16,7 +27,6 @@ import errno
 import argparse
 from math import floor
 
-# Todo: Replace some formatting with os.path.join
 
 FILL = tk.N + tk.S + tk.E + tk.W
 WFILL = tk.E + tk.W
@@ -28,12 +38,27 @@ COMPLETION_KEYS = [32, 8]
 
 
 def makeMappings(lst):
+    """Make shortkey mappings from a list of paths
+    
+    Args:
+        lst (list<str>): A list of folder paths
+    
+    Returns:
+        dict: {shortkey: path for path in lst}
+    """
     vals = [i.split(sep)[-2].lower() for i in lst]
     map_prime = {vals[i]: lst[i] for i in range(0, len(lst))}
     return map_prime
 
 
 def doFileRename(oldFileName, newFileName, confident=False):
+    """Perform a file rename operation, possibly failing.
+    
+    Args:
+        oldFileName (str): Complete path to old file
+        newFileName (str): Complete path to new file
+        confident (bool, optional): Displace existing images (not clobber)
+    """
     try:
         print("{} -> {}".format(oldFileName, newFileName))
         os.rename(oldFileName, newFileName)
@@ -47,6 +72,14 @@ def doFileRename(oldFileName, newFileName, confident=False):
 
 
 def imageSize(filename):
+    """Get the number of pixels in an image
+    
+    Args:
+        filename (str): Path to file
+    
+    Returns:
+        int: Number of pixels in image
+    """
     try:
         w, h = Image.open(filename).size
         return w * h
@@ -59,6 +92,12 @@ def imageSize(filename):
 
 
 def filemove(src, dst):
+    """Move a file
+    
+    Args:
+        src (str): Source path
+        dst (str): Destination path
+    """
     print("{} -> {}".format(src, dst))
     try:
         shutil.move(src, dst)
@@ -68,22 +107,52 @@ def filemove(src, dst):
 
 
 def trash(file):
+    """Args:
+        file (str): Path to trash
+    """
     print("Trashing {}".format(file))
     send2trash(file)
     print("Trashed {}".format(file))
 
 
 class FileSorter(tk.Tk):
+
+    """Summary
+    
+    Attributes:
+        canvas (TYPE): Description
+        context (TYPE): Description
+        contextglobs (TYPE): Description
+        curimg (TYPE): Description
+        filepaths (TYPE): Description
+        frame_sidebar (TYPE): Description
+        image_index (int): Description
+        image_on_canvas (TYPE): Description
+        imageglobs (TYPE): Description
+        keycache (dict): Description
+        keymap (TYPE): Description
+        keymap_keys (TYPE): Description
+        lab_curfile (TYPE): Description
+        rootpath (TYPE): Description
+        str_context (tk.Stringvar): Description
+        str_curfile (tk.Stringvar): Description
+        undo (list): Stack of functions to process via ctrl+z
+    """
+    
     def __init__(self, rootpath, *args, **kwargs):
+        """File sorter main window
+        
+        Passthrough to tk.Tk
+        Args:
+            rootpath (TYPE): Description
+            *args: Description
+            **kwargs: Description
+        """
         super(FileSorter, self).__init__(*args, **kwargs)
 
         self.image_index = 0
         self.str_context = tk.StringVar()
         self.undo = []
-
-        # Validate arguments
-        # opendir does this now
-        # self.generatePaths(rootpath.replace("/", sep))
 
         self.initwindow()
 
@@ -97,6 +166,9 @@ class FileSorter(tk.Tk):
         self.mainloop()
     
     def initwindow(self):
+        """Initialize widgets for the window
+        """
+
         # # Header stuff # #
         # current filename label
         self.str_curfile = tk.StringVar(value="NaN")
@@ -119,6 +191,11 @@ class FileSorter(tk.Tk):
         self.frame_sidebar.grid(row=1, column=1, sticky="NSEW")
 
     def openDir(self, newdir=None):
+        """Open a new directory and prepare window
+        
+        Args:
+            newdir (str, optional): Path of new directory. If blank, prompts user.
+        """
         if not newdir:
             newdir = os.path.realpath(filedialog.askdirectory())
             if newdir == '':
@@ -134,12 +211,25 @@ class FileSorter(tk.Tk):
         self.nextImage()
 
     def labelFileName(self):
+        """Generate a user-friendly filename for the header
+        """
         prettyname = os.path.split(self.filepaths[self.image_index])[1]
-        # prettyname = self.filelist[self.image_index][0]
         self.str_curfile.set(prettyname)
 
     # Generators and logic
     def getBestFolder(self, entry, fast=False):
+        """Wrapper around getBestFolders to find a single best folder.
+        
+        Args:
+            entry (str): Shortcode, search term
+            fast (bool, optional): Use fast algorithm
+        
+        Returns:
+            TYPE: Description
+        
+        Raises:
+            EnvironmentError: If there is more than one acceptable folder
+        """
         gbf = self.getBestFolders(entry, fast=fast)
         if len(gbf) == 1:
             return self.keymap[self.keymap_keys[gbf[0]]]
@@ -147,6 +237,15 @@ class FileSorter(tk.Tk):
             raise EnvironmentError("Ambiguous folder selected, could be any of: {}".format(gbf))
 
     def getBestFolders(self, entry, fast=False):
+        """Finds folders that match the search term
+        
+        Args:
+            entry (str): Shortcode, search term
+            fast (bool, optional): Use fast algorithm
+        
+        Returns:
+            list<int>: List of valid match INDEXES. Indexes reference self.keymap_keys
+        """
         if self.keycache.get(entry) is not None:
             return [self.keycache.get(entry)]
 
@@ -164,6 +263,8 @@ class FileSorter(tk.Tk):
             return matches
 
     def generateContextKey(self):
+        """Generate and refresh the sidebar listbox
+        """
         self.frame_sidebar.listbox_context.configure(state=tk.NORMAL)
         self.frame_sidebar.listbox_context.delete(0, self.frame_sidebar.listbox_context.size())
         for val in self.keymap_keys:
@@ -171,7 +272,12 @@ class FileSorter(tk.Tk):
                 tk.END, "{}".format(val[0:15]))
         # self.frame_sidebar.listbox_context.configure(state=tk.DISABLED)
 
-    def updateContextSelections(self, matches):
+    def highlightListboxItems(self, matches):
+        """Highlight specific items in the listbox
+        
+        Args:
+            matches (list): List of indexes to highlight
+        """
         self.frame_sidebar.listbox_context.configure(state=tk.NORMAL)
         self.frame_sidebar.listbox_context.selection_clear(0, tk.END)
         if len(matches) == 0:
@@ -181,6 +287,11 @@ class FileSorter(tk.Tk):
             self.frame_sidebar.listbox_context.selection_set(index)
 
     def generatePaths(self, rootpath):
+        """Generate imageglobs and contextglobs for a root path
+        
+        Args:
+            rootpath (str): Root path to search
+        """
         print("Generating paths for: {}".format(rootpath))
         # Pull loose images
         self.imageglobs = [            
@@ -212,6 +323,8 @@ class FileSorter(tk.Tk):
     # Backend updates
 
     def reloadDirContext(self):
+        """Reload globs, keys, and context for our directory.
+        """
         self.context = sum([glob(a) for a in self.contextglobs], [])
         self.keymap = makeMappings(self.context)
         self.keymap_keys = list(self.keymap.keys())  # Constant order
@@ -219,20 +332,33 @@ class FileSorter(tk.Tk):
         self.generateContextKey()
 
     def reloadImages(self):
-        # self.filepaths = sorted(
-        #     sum([glob(a) for a in self.imageglobs], []), key=imageSize)
+        """Reload filepaths, rescan for images.
+        """
         self.filepaths = sum([glob(a) for a in self.imageglobs], [])
 
     def nextImage(self, event=None):
-        # Queue the next image
+        """Show the next image
+        
+        Args:
+            event (optional): tk triggering event
+        """
         self.image_index += 1
         self.imageUpdate()
 
     def prevImage(self, event=None):
+        """Show the previous image
+        
+        Args:
+            event (optional): tk triggering event
+        """
         self.image_index -= 1
         self.imageUpdate()
 
     def imageUpdate(self):
+        """Update the display to match the current image index. 
+        Image indexes wrap around here.
+        """
+
         # Wraparound image indicies
         if self.image_index < 0:
             self.image_index = len(self.filepaths) - 1
@@ -268,6 +394,16 @@ class FileSorter(tk.Tk):
         self.labelFileName()
 
     def makePhotoImage(self, filename, maxwidth, maxheight):
+        """Make a resized photoimage given a filepath
+        
+        Args:
+            filename (str): Path to an image file
+            maxwidth (TYPE): Maximum width of canvas
+            maxheight (TYPE): Maximum height of canvas
+        
+        Returns:
+            ImageTk.PhotoImage
+        """
         pilimg = Image.open(filename)
         self.curimg = ImageTk.PhotoImage(pilimg)
 
@@ -288,6 +424,13 @@ class FileSorter(tk.Tk):
     # Disk action
 
     def submit(self, event=False, entry=""):
+        """Processing when the user submits the "move" entry
+        
+        Args:
+            event (bool, optional): Tk triggerinv event.
+            entry (str, optional): Text of entry, if no triggering event.
+        """
+
         oldFileName = self.filepaths[self.image_index]
         if event:
             entry = event.widget.get()
@@ -323,14 +466,14 @@ class FileSorter(tk.Tk):
             widget.after(600, lambda: (widget.config(
                 state='normal'), widget.delete(0, last=tk.END)))
 
-        # prev_aggression = self.aggressive.get()
-        # self.aggressive.set(False)
-        # self.check_aggressive.config(state='disabled')
-        # self.check_aggressive.after(300, lambda: (self.check_aggressive.config(state='active'), self.aggressive.set(prev_aggression)))
-
         self.imageUpdate()
 
     def delete(self, event):
+        """Delete the currently selected file
+        
+        Args:
+            event: Tk triggering event
+        """
         fileToDelete = self.filepaths[self.image_index]
         confirmed = messagebox.askyesno(
             "Confirm", "{}\nAre you sure you want to delete this file?\n(The file will be trashed, and semi-recoverable.)".format(fileToDelete))
@@ -343,6 +486,12 @@ class FileSorter(tk.Tk):
             self.imageUpdate()
 
     def dorename(self, event):
+        """Rename current file.
+        
+        Args:
+            event (TYPE): Tk triggering event
+        """
+
         entry = event.widget.get()
         if entry == "":
             self.nextImage()
@@ -350,7 +499,7 @@ class FileSorter(tk.Tk):
         oldFileName = self.filepaths[self.image_index]
         (folder, file) = os.path.split(oldFileName)
         extension = file.split(".")[-1]
-        newFileName = os.path.join(folder, entry, extension)
+        newFileName = os.path.join(folder, entry + "." + extension)
         # newFileName = "{}{}{}.{}".format(
         #     sep.join(oldFileName.split(sep)[:-1]),
         #     sep,
@@ -360,9 +509,9 @@ class FileSorter(tk.Tk):
             name="{} -> {}".format(oldFileName, newFileName),
             target=doFileRename, args=(oldFileName, newFileName,), kwargs={'confident': (self.frame_sidebar.confident.get() == 1)})
         doFileRename(oldFileName, newFileName,
-                     confident=(self.confident.get() == 1))
+                     confident=self.frame_sidebar.confident.get())
         self.undo.append(lambda self: doFileRename(
-            newFileName, oldFileName, confident=(self.confident.get() == 1)))
+            newFileName, oldFileName, confident=self.frame_sidebar.confident.get()))
         self.reloadImages()
         self.imageUpdate()
 
@@ -370,13 +519,18 @@ class FileSorter(tk.Tk):
         event.widget.delete(0, last=tk.END)
 
     def newfolder(self, event):
+        """Create a new folder
+        
+        Args:
+            event (TYPE): Tk triggering event
+        """
         newfoldername = event.widget.get()
         oldFileName = self.filepaths[self.image_index]
         if newfoldername == "":
             self.nextImage()
             return
         try:
-            newdir = os.path.join(self.rootpath, newfolder)
+            newdir = os.path.join(self.rootpath, newfoldername)
             os.mkdir(newdir)
             self.reloadDirContext()
             filemove(oldFileName, newdir)
@@ -390,6 +544,11 @@ class FileSorter(tk.Tk):
         event.widget.delete(0, last=tk.END)
 
     def doUndo(self, event):
+        """Process an undo operation, handling the stack. 
+        
+        Args:
+            event: Tk triggering event
+        """
         if len(self.undo) == 0:
             return
         op = self.undo.pop()
@@ -400,9 +559,17 @@ class FileSorter(tk.Tk):
 
 class SidebarFrame(tk.Frame):
 
+    """Frame that manages the sidebar and user input
+    """
+    
     # Init and window management
 
     def __init__(self, parent, *args, **kwargs):
+        """Args:
+            parent (tk): Tk parent widget
+            *args: Passthrough
+            **kwargs: Passthrough
+        """
         tk.Frame.__init__(self, *args, **kwargs)
 
         linkedFunctions = [
@@ -418,20 +585,21 @@ class SidebarFrame(tk.Frame):
             "dorename",
             "imageUpdate",
             "reloadDirContext",
-            "updateContextSelections"
+            "highlightListboxItems"
         ]
         for f in linkedFunctions:
             self.__setattr__(f, parent.__getattribute__(f))
 
         # Initialize window
-        self.initwindow(**kwargs)
+        self.initwindow()
 
-    def initwindow(self, **kwargs):
-
+    def initwindow(self):
+        """Initialize widgets
+        """
         inOrderRow = 0
 
-        # Helper function to increment in-order elements
         def rowInOrder():
+            """Helper function to increment in-order elements"""
             nonlocal inOrderRow
             inOrderRow += 1
             return inOrderRow
@@ -454,14 +622,15 @@ class SidebarFrame(tk.Frame):
         btn_skip = ttk.Button(self, text="Skip", takefocus=False, command=self.nextImage)
         btn_skip.grid(row=inOrderRow, sticky=tk.E)
 
-        def highlightEntry():
-            return tk.Entry(self, highlightthickness=2, takefocus=True)
+        def highlightEntry(parent):
+            """Quick factory for entries that highlight"""
+            return tk.Entry(parent, highlightthickness=2, takefocus=True)
 
         # Entry text field
         lab_context_label = ttk.Label(self, text="Move to folder ID:")
         lab_context_label.grid(row=rowInOrder())
 
-        self.entry = highlightEntry()
+        self.entry = highlightEntry(self)
         self.entry.bind("<Return>", self.submit)
         self.entry.bind("<KeyRelease>", self.processEntryInput)
         self.entry.grid(row=rowInOrder(), sticky="WE")
@@ -471,28 +640,28 @@ class SidebarFrame(tk.Frame):
         lab_newfolder = ttk.Label(self, text="Move to new folder:")
         lab_newfolder.grid(row=rowInOrder())
 
-        self.entry_newfolder = highlightEntry()
+        self.entry_newfolder = highlightEntry(self)
         self.entry_newfolder.bind("<Return>", self.newfolder)
         self.entry_newfolder.grid(row=rowInOrder(), sticky="WE")
+
+        # Setting checkboxes
+        self.aggressive = tk.BooleanVar()
+        check_aggressive = tk.Checkbutton(
+            self, text="Auto", takefocus=False, variable=self.aggressive)
+        check_aggressive.grid(row=rowInOrder(), sticky=tk.W)
+
+        self.confident = tk.BooleanVar()
+        check_confident = tk.Checkbutton(
+            self, text="Displace", takefocus=False, variable=self.confident)
+        check_confident.grid(row=inOrderRow, sticky=tk.E)
 
         # Rename
         lab_rename = ttk.Label(self, text="Rename")
         lab_rename.grid(row=rowInOrder())
 
-        self.entry_rename = highlightEntry()
+        self.entry_rename = highlightEntry(self)
         self.entry_rename.grid(row=rowInOrder(), sticky="WE")
         self.entry_rename.bind("<Return>", self.dorename)
-
-        # Setting checkboxes
-        self.aggressive = tk.IntVar()
-        check_aggressive = tk.Checkbutton(
-            self, text="Auto", takefocus=False, variable=self.aggressive)
-        check_aggressive.grid(row=rowInOrder(), sticky=tk.W)
-
-        self.confident = tk.IntVar()
-        check_confident = tk.Checkbutton(
-            self, text="Displace", takefocus=False, variable=self.confident)
-        check_confident.grid(row=inOrderRow, sticky=tk.E)
 
         # context keys
         lab_context_label = ttk.Label(self, text="Folder IDs:")
@@ -507,6 +676,11 @@ class SidebarFrame(tk.Frame):
         self.grid_rowconfigure(inOrderRow, weight=1)
 
     def processEntryInput(self, event):
+        """Process entry input, handling element styling and possible automatic submission.
+        
+        Args:
+            event (TYPE): Tk entry event
+        """
         GOOD = "#AAFFAA"
         BAD = "#FFAAAA"
         NORMAL = "#FFFFFF"
@@ -517,10 +691,10 @@ class SidebarFrame(tk.Frame):
 
         if fieldGet == "":
             event.widget.configure(bg=NORMAL)
-            self.updateContextSelections([])
+            self.highlightListboxItems([])
             return
         bestFolders = self.getBestFolders(fieldGet)
-        self.updateContextSelections(bestFolders)
+        self.highlightListboxItems(bestFolders)
         if len(bestFolders) == 1:
             self.str_curfile.set(self.getBestFolder(fieldGet))
             event.widget.configure(bg=GOOD)
@@ -532,6 +706,8 @@ class SidebarFrame(tk.Frame):
 
 
 def run_threaded():
+    """Run the program with threading support
+    """
     try:
         ap = argparse.ArgumentParser()
         ap.add_argument("-r", "--root",
