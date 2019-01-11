@@ -2,7 +2,6 @@
 sort images
 
 Attributes:
-    ALWAYS_RESIZE (bool): Always fill image to screen
     COMPLETION_KEYS (list): Keys that signify completion
     FILL (TYPE): Tk shortcut for all sticky directions
     IMAGEEXTS (list): Valid file extensions for images
@@ -31,7 +30,6 @@ from math import floor
 FILL = tk.N + tk.S + tk.E + tk.W
 WFILL = tk.E + tk.W
 
-ALWAYS_RESIZE = True
 IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif"]
 
 COMPLETION_KEYS = [32, 8]
@@ -110,9 +108,10 @@ def trash(file):
     """Args:
         file (str): Path to trash
     """
-    print("Trashing {}".format(file))
+    # print("Trashing {}".format(file))
     send2trash(file)
-    print("Trashed {}".format(file))
+    assert (not os.path.exists(file)), "Deletion failed?"
+    print("Trashed  {}".format(file))
 
 
 class FileSorter(tk.Tk):
@@ -156,17 +155,21 @@ class FileSorter(tk.Tk):
 
         self.initwindow()
 
-        self.openDir(rootpath)
+        self.openDir(os.path.realpath(rootpath))
 
         self.bind("<Control-z>", self.doUndo)
         self.bind("<Delete>", self.askDelete)
         self.bind("<Alt-d>", self.fastDelete)
-        self.bind("<Alt-k>", self.nextImage)
+        self.bind("<Alt-k>", self.keepImage)
         self.bind("<Right>", self.nextImage)
         self.bind("<Left>", self.prevImage)
 
         self.mainloop()
-    
+
+    def keepImage(self, event=None):
+        keepdir = "{}-keep".format(os.path.split(self.rootpath)[1])
+        self.moveToFolder(newfoldername=keepdir)
+
     def initwindow(self):
         """Initialize widgets for the window
         """
@@ -199,9 +202,11 @@ class FileSorter(tk.Tk):
             newdir (str, optional): Path of new directory. If blank, prompts user.
         """
         if not newdir:
+            self.update_idletasks()  # Bug with tkinter: the mainloop must loop before calling filedialog
             newdir = os.path.realpath(filedialog.askdirectory())
             if newdir == '':
                 os.abort()
+        self.rootpath = newdir
         self.generatePaths(newdir)
 
         # Initialize data
@@ -210,7 +215,8 @@ class FileSorter(tk.Tk):
 
         self.undo = []
         # Initialize images
-        self.nextImage()
+        self.image_index = 0
+        self.imageUpdate()
 
     def labelFileName(self):
         """Generate a user-friendly filename for the header
@@ -316,7 +322,7 @@ class FileSorter(tk.Tk):
                 os.path.join(rootpath, "..", ".." + sep)
             ]
             rootpath = os.path.join(rootpath, "..")
-        self.rootpath = rootpath  # Where we make new folders
+        self.newFolderRoot = rootpath  # Where we make new folders
 
     # def backspace(self, event):
     #     if event.widget.get() == "":
@@ -336,7 +342,7 @@ class FileSorter(tk.Tk):
     def reloadImages(self):
         """Reload filepaths, rescan for images.
         """
-        self.filepaths = sum([glob(a) for a in self.imageglobs], [])
+        self.filepaths = sorted(sum([glob(a) for a in self.imageglobs], []))
 
     def nextImage(self, event=None):
         """Show the next image
@@ -395,7 +401,7 @@ class FileSorter(tk.Tk):
         self.canvas.itemconfig(self.image_on_canvas, image=self.curimg)
         self.labelFileName()
 
-    def makePhotoImage(self, filename, maxwidth, maxheight):
+    def makePhotoImage(self, filename, maxwidth, maxheight, ALWAYS_RESIZE=True):
         """Make a resized photoimage given a filepath
         
         Args:
@@ -468,6 +474,7 @@ class FileSorter(tk.Tk):
             widget.after(600, lambda: (widget.config(
                 state='normal'), widget.delete(0, last=tk.END)))
 
+        self.highlightListboxItems([])
         self.imageUpdate()
 
     def askDelete(self, event):
@@ -523,20 +530,21 @@ class FileSorter(tk.Tk):
         # Clear field
         event.widget.delete(0, last=tk.END)
 
-    def newfolder(self, event):
-        """Create a new folder
+    def moveToFolder(self, event=None, newfoldername=""):
+        """Move the current image to a folder, which can be new.
         
         Args:
             event (TYPE): Tk triggering event
         """
-        newfoldername = event.widget.get()
+        if event:
+            newfoldername = event.widget.get()
         oldFileName = self.filepaths[self.image_index]
         if newfoldername == "":
             self.nextImage()
             return
         try:
-            newdir = os.path.join(self.rootpath, newfoldername)
-            os.mkdir(newdir)
+            newdir = os.path.join(self.newFolderRoot, newfoldername)
+            os.makedirs(newdir, exist_ok=True)
             self.reloadDirContext()
             filemove(oldFileName, newdir)
             self.filepaths.remove(oldFileName)
@@ -546,7 +554,8 @@ class FileSorter(tk.Tk):
             traceback.print_exc()
 
         # Clear field
-        event.widget.delete(0, last=tk.END)
+        if event:
+            event.widget.delete(0, last=tk.END)
 
     def doUndo(self, event):
         """Process an undo operation, handling the stack. 
@@ -586,7 +595,7 @@ class SidebarFrame(tk.Frame):
             "prevImage",
             "openDir",
             "submit",
-            "newfolder",
+            "moveToFolder",
             "dorename",
             "imageUpdate",
             "reloadDirContext",
@@ -646,7 +655,7 @@ class SidebarFrame(tk.Frame):
         lab_newfolder.grid(row=rowInOrder())
 
         self.entry_newfolder = highlightEntry(self)
-        self.entry_newfolder.bind("<Return>", self.newfolder)
+        self.entry_newfolder.bind("<Return>", self.moveToFolder)
         self.entry_newfolder.grid(row=rowInOrder(), sticky="WE")
 
         # Setting checkboxes
