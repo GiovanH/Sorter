@@ -35,6 +35,15 @@ IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif"]
 COMPLETION_KEYS = [32, 8]
 
 
+def wraparound(index, max):
+    """Max is, pythonically, exclusive, so len(x) can be an argument"""
+    if index < 0:
+        index = max - 1
+    if index >= max:
+        index = 0
+    return index
+
+
 def makeMappings(lst):
     """Make shortkey mappings from a list of paths
     
@@ -150,6 +159,7 @@ class FileSorter(tk.Tk):
         super(FileSorter, self).__init__(*args, **kwargs)
 
         self.image_index = 0
+        self.photoImageCache = {}
         self.str_context = tk.StringVar()
         self.undo = []
 
@@ -164,7 +174,29 @@ class FileSorter(tk.Tk):
         self.bind("<Right>", self.nextImage)
         self.bind("<Left>", self.prevImage)
 
+        self.bind("<Configure>", self.onResize)
+        self.onResizeCallback = None
+        self.lastwh = tuple()
+
         self.mainloop()
+
+    def onResize(self, event):
+        wh = (event.width, event.height)
+        if wh == self.lastwh:
+            # Window has not been resized, just moved.
+            return
+        else:
+            self.lastwh = wh
+
+        # Clear waiting callbacks
+        if self.onResizeCallback:
+            self.after_cancel(self.onResizeCallback)
+
+        def orc():
+            self.photoImageCache.clear()
+            self.imageUpdate()
+        self.onResizeCallback = self.after(25, orc)
+        # self.onResizeCallback = self.after_idle(orc)
 
     def keepImage(self, event=None):
         keepdir = "{}-keep".format(os.path.split(self.rootpath)[1])
@@ -362,17 +394,15 @@ class FileSorter(tk.Tk):
         self.image_index -= 1
         self.imageUpdate()
 
-    def imageUpdate(self):
+    def imageUpdate(self, event=None):
         """Update the display to match the current image index. 
         Image indexes wrap around here.
         """
 
         # Wraparound image indicies
-        if self.image_index < 0:
-            self.image_index = len(self.filepaths) - 1
-        if self.image_index >= len(self.filepaths):
+        self.image_index = wraparound(self.image_index, len(self.filepaths))
+        if self.image_index == 0:
             self.reloadImages()
-            self.image_index = 0
 
         if len(self.filepaths) == 0:
             return self.str_curfile.set("No more images found!")
@@ -400,8 +430,21 @@ class FileSorter(tk.Tk):
 
         self.canvas.itemconfig(self.image_on_canvas, image=self.curimg)
         self.labelFileName()
+        loom.thread(target=lambda: self.loadPhotoImage(maxwidth, maxheight))
 
-    def makePhotoImage(self, filename, maxwidth, maxheight, ALWAYS_RESIZE=True):
+    def loadPhotoImage(self, *args, **kwargs):
+        self.makePhotoImage(
+            self.filepaths[wraparound(self.image_index - 1, len(self.filepaths))],
+            *args,
+            **kwargs
+        )
+        self.makePhotoImage(
+            self.filepaths[wraparound(self.image_index + 1, len(self.filepaths))],
+            *args,
+            **kwargs
+        )
+
+    def makePhotoImage(self, filename, maxwidth, maxheight, ALWAYS_RESIZE=True, stepscale=True, stepsize=2):
         """Make a resized photoimage given a filepath
         
         Args:
@@ -412,21 +455,30 @@ class FileSorter(tk.Tk):
         Returns:
             ImageTk.PhotoImage
         """
-        pilimg = Image.open(filename)
-        self.curimg = ImageTk.PhotoImage(pilimg)
+        # pilimg = Image.open(filename)
+        pilimg = self.photoImageCache.get(filename)
+        if not pilimg:
+            pilimg = Image.open(filename)
 
-        width = self.curimg.width()
-        height = self.curimg.height()
-        imageIsTooBig = width > maxwidth or height > maxheight
-        if (imageIsTooBig or ALWAYS_RESIZE):
-            ratio = min(maxwidth / width, maxheight / height)
-            method = Image.ANTIALIAS
-            if ratio > 1:
-                ratio = floor(ratio)
-                method = Image.LINEAR
-            pilimg = Image.open(filename).resize(
-                (int(width * ratio), int(height * ratio)), method)
+            imageIsTooBig = pilimg.width > maxwidth or pilimg.height > maxheight
+            if (imageIsTooBig or ALWAYS_RESIZE):
+                ratio = min(maxwidth / pilimg.width, maxheight / pilimg.height)
 
+                if stepscale:
+                    stepratio = floor(ratio * stepsize) / stepsize
+                    if stepratio != 0:
+                        ratio = stepratio 
+                try:
+                    pilimg = pilimg.resize(
+                        (int(pilimg.width * ratio), int(pilimg.height * ratio)), Image.ANTIALIAS)
+                except OSError:
+                    print("OS error resizing file", filename)
+                    # loc = None
+                    # for loc in locals():
+                    #     print(loc, ":", locals().get(loc))
+                    return ImageTk.PhotoImage(pilimg)
+
+            self.photoImageCache[filename] = pilimg
         return ImageTk.PhotoImage(pilimg)
 
     # Disk action
@@ -512,11 +564,6 @@ class FileSorter(tk.Tk):
         (folder, file) = os.path.split(oldFileName)
         extension = file.split(".")[-1]
         newFileName = os.path.join(folder, entry + "." + extension)
-        # newFileName = "{}{}{}.{}".format(
-        #     sep.join(oldFileName.split(sep)[:-1]),
-        #     sep,
-        #     entry,
-        # )
         loom.thread(
             name="{} -> {}".format(oldFileName, newFileName),
             target=doFileRename, args=(oldFileName, newFileName,), kwargs={'confident': (self.frame_sidebar.confident.get() == 1)})
@@ -624,12 +671,6 @@ class SidebarFrame(tk.Frame):
             lambda: (self.reloadDirContext(), self.imageUpdate()))
         )
         btn_ref.grid(row=inOrderRow, sticky=tk.E)
-        
-        # self.btn_clear = ttk.Button(
-        #     text="Clear", takefocus=False, command=(
-        #         lambda: (self.generatePaths("/dev/null"), self.reloadDirContext(), self.imageUpdate()))
-        # )
-        # self.btn_clear.grid(row=inOrderRow, sticky=tk.E)
 
         btn_back = ttk.Button(self, text="Prev", takefocus=False, command=self.prevImage)
         btn_back.grid(row=rowInOrder(), sticky=tk.W)
@@ -646,7 +687,7 @@ class SidebarFrame(tk.Frame):
 
         self.entry = highlightEntry(self)
         self.entry.bind("<Return>", self.submit)
-        # self.entry.bind("<Button-1>", self.focus)
+        self.entry.focus()
         self.entry.bind("<KeyRelease>", self.processEntryInput)
         self.entry.grid(row=rowInOrder(), sticky="WE")
 
