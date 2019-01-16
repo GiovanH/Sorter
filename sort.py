@@ -35,7 +35,7 @@ IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif"]
 
 COMPLETION_KEYS = [32, 8]
 
-spool = loom.FastSpool(8, start=True)
+spool = loom.Spool(8)
 
 
 def wraparound(index, max):
@@ -215,7 +215,7 @@ class FileSorter(tk.Tk):
         # self.onResizeCallback = self.after_idle(orc)
 
     def keepImage(self, event=None):
-        keepdir = "{}-keep".format(os.path.split(self.rootpath)[1])
+        keepdir = os.path.join("keep", os.path.split(self.rootpath)[1])
         self.moveToFolder(newfoldername=keepdir)
 
     def initwindow(self):
@@ -401,7 +401,7 @@ class FileSorter(tk.Tk):
     def reloadImages(self):
         """Reload filepaths, rescan for images.
         """
-        return self.sorter(sum([glob(a) for a in self.imageglobs], []))
+        self.filepaths = self.sorter(sum([glob(a) for a in self.imageglobs], []))
 
     def reSort(self):
         # self.reloadDirContext()
@@ -454,13 +454,8 @@ class FileSorter(tk.Tk):
 
         try:
             self.curimg = self.makePhotoImage(filename, maxwidth, maxheight)
-        except OSError as e:
-            print("[OS error] Bad image: " + filename)
-            traceback.print_exc()
-            self.filepaths.remove(filename)
-            return self.imageUpdate()
-        except tk.TclError as e:
-            print("[tk error] Bad image: " + filename)
+        except (OSError, SyntaxError, tk.TclError) as e:
+            print("[{}] Bad image: ".format(e) + filename)
             traceback.print_exc()
             self.filepaths.remove(filename)
             return self.imageUpdate()
@@ -518,12 +513,16 @@ class FileSorter(tk.Tk):
                 try:
                     pilimg = pilimg.resize(
                         (int(pilimg.width * ratio), int(pilimg.height * ratio)), method)
-                except OSError:
+                except OSError as e:
                     print("OS error resizing file", filename)
                     # loc = None
                     # for loc in locals():
                     #     print(loc, ":", locals().get(loc))
-                    return ImageTk.PhotoImage(pilimg)
+                    try:
+                        return ImageTk.PhotoImage(pilimg)
+                    except SyntaxError as e2:
+                        print("Corrupt image")
+                        raise
 
             self.photoImageCache[filename] = pilimg
             loom.thread(target=self.pruneImageCache, name="pruneImageCache")
@@ -876,13 +875,14 @@ def trash(fileToDelete, undos=None):
     """Args:
         fileToDelete (str): Path to trash
     """
-    print("Trashing {}".format(fileToDelete))
+    max_trash_history = 30
+
     (folder, file) = os.path.split(fileToDelete)
     trashed_file_path = os.path.join(trashdir, file)
 
     # Clean trash
-    if len(trashed_files) > 4:
-        surplus = trashed_files[4:]
+    if len(trashed_files) > max_trash_history:
+        surplus = trashed_files[:-max_trash_history]
         really_trash_files(surplus)
         for n in surplus:
             trashed_files.remove(n)
@@ -896,18 +896,33 @@ def trash(fileToDelete, undos=None):
                 filemove(trashed_file_path, fileToDelete),
                 trashed_files.remove((trashed_file_path, fileToDelete,)),
             ))),
-        (lambda: print("Trashed  {}".format(file)))
     ])
     spool.flush()
 
 
 def really_trash_files(trashed_files):
+    spool.flush()
     for (trashed_file_path, original_path) in trashed_files:
+        spool.enqueue(target=really_trash_file, args=(trashed_file_path, original_path,))
         # spool.enqueue(target=send2trash, args=(trashed_file_path,))
-        spool.enqueueSeries([
-            (lambda: filemove(trashed_file_path, original_path)),
-            (lambda: send2trash(original_path))
-        ])
+        
+
+def really_trash_file(trashed_file_path, original_path):
+    try:
+        filemove(trashed_file_path, original_path)
+    except Exception as e:
+        print(vars())
+        print("Can't un-temp file. ")
+        raise    
+    try:
+        send2trash(original_path)
+        print("{} -> [trash]".format(original_path))
+    except Exception as e:
+        print("{} -x> [trash]".format(original_path))
+        print(vars())
+        print("Can't trash un-temp'd file Putting it back. ")
+        filemove(original_path, trashed_file_path)
+        raise
 
 
 def run_threaded():
@@ -927,7 +942,7 @@ def run_threaded():
     # Cleanup
     really_trash_files(trashed_files)
     # glob(os.path.join(trashdir, "*"), recursive=True):
-    spool.finish(use_pbar=True, delay=0.2)  # We must wait for previous jobs to finish
+    spool.finish()  # We must wait for previous jobs to finish
 
     # loom.threadWait(1, 1)
 
