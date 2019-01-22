@@ -162,9 +162,11 @@ class FileSorter(tk.Tk):
             )
             for (name, keyfunc) in [
                 ("Alphabetical", str.lower,),
-                ("Image Dimensions", imageSize,),
                 ("File size", os.path.getsize,),
-                ("File type", lambda f: os.path.splitext(f)[1],)
+                ("File type", lambda f: os.path.splitext(f)[1],),
+                ("Image Dimensions", imageSize,),
+                ("Image Height", lambda f: Image.open(f).size[1],),
+                ("Image Width", lambda f: Image.open(f).size[0],)
             ]
             for (order, orderb) in [
                 ("asc", False,), ("desc", True,)
@@ -408,6 +410,7 @@ class FileSorter(tk.Tk):
         self.canvas.itemconfig(self.image_on_canvas, state="hidden")
         self.update_idletasks()
         self.filepaths = self.sorter(self.filepaths)
+        self.image_index = 0
         self.imageUpdate()
         self.canvas.itemconfig(self.image_on_canvas, state="normal")
 
@@ -476,10 +479,11 @@ class FileSorter(tk.Tk):
                 *args,
                 **kwargs
             )
-        except MemoryError:
+        except (MemoryError, tk.TclError):
             print(self.photoImageCache)
             print(hex(id(self.photoImageCache)))
             print(len(self.photoImageCache))
+            self.photoImageCache.clear()
             # for loc in locals():
             #     print(loc, ":", locals().get(loc))
             raise
@@ -510,6 +514,8 @@ class FileSorter(tk.Tk):
                     if stepratio != 0:
                         ratio = stepratio
                         method = Image.LINEAR
+                    # else:
+                    #     print("Warning: stepratio =", stepratio, "with ratio", ratio, "and stepsize", stepsize)
                 try:
                     pilimg = pilimg.resize(
                         (int(pilimg.width * ratio), int(pilimg.height * ratio)), method)
@@ -523,14 +529,21 @@ class FileSorter(tk.Tk):
                     except SyntaxError as e2:
                         print("Corrupt image")
                         raise
+                    except (MemoryError, tk.TclError):
+                        print("Corrupt image, I think?")
+                        print(filename)
+                        messagebox.showwarning("Bad image", traceback.format_exc())
+                        self.filepaths.remove(filename)
+                        self.imageUpdate()
 
             self.photoImageCache[filename] = pilimg
             loom.thread(target=self.pruneImageCache, name="pruneImageCache")
         return ImageTk.PhotoImage(pilimg)
 
-    def pruneImageCache(self, max_memory_entries=80):
+    def pruneImageCache(self, max_memory_entries=30):
         while len(self.photoImageCache) > max_memory_entries:
             self.photoImageCache.pop(list(self.photoImageCache.keys())[0])
+        assert len(self.photoImageCache) <= max_memory_entries
 
     # Disk action
 
