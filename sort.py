@@ -35,16 +35,7 @@ IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif"]
 
 COMPLETION_KEYS = [32, 8]
 
-spool = loom.Spool(8)
-
-
-def wraparound(index, max):
-    """Max is, pythonically, exclusive, so len(x) can be an argument"""
-    if index < 0:
-        index = max - 1
-    if index >= max:
-        index = 0
-    return index
+spool = loom.Spool(8, belay=True)
 
 
 def makeMappings(lst):
@@ -59,6 +50,27 @@ def makeMappings(lst):
     vals = [i.split(sep)[-2].lower() for i in lst]
     map_prime = {vals[i]: lst[i] for i in range(0, len(lst))}
     return map_prime
+
+
+def copy_to_clipboard(filepath):
+    from io import BytesIO
+    import win32clipboard
+    from PIL import Image
+
+    def send_to_clipboard(clip_type, data):
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(clip_type, data)
+        win32clipboard.CloseClipboard()
+
+    image = Image.open(filepath)
+
+    output = BytesIO()
+    image.convert("RGB").save(output, "BMP")
+    data = output.getvalue()[14:]
+    output.close()
+
+    send_to_clipboard(win32clipboard.CF_DIB, data)
 
 
 def doFileRename(oldFileName, newFileName, confident=False):
@@ -116,6 +128,65 @@ def filemove(src, dst):
         traceback.print_exc()
 
 
+trashdir = mkdtemp(prefix="srt-")
+trashed_files = []
+print("Opened trash directory as", trashdir)
+
+
+def trash(fileToDelete, undos=None):
+    """Args:
+        fileToDelete (str): Path to trash
+    """
+    max_trash_history = 30
+
+    (folder, file) = os.path.split(fileToDelete)
+    trashed_file_path = os.path.join(trashdir, file)
+
+    # Clean trash
+    if len(trashed_files) > max_trash_history:
+        surplus = trashed_files[:-max_trash_history]
+        really_trash_files(surplus)
+        for n in surplus:
+            trashed_files.remove(n)
+
+    spool.enqueueSeries([
+        (lambda: filemove(fileToDelete, trashed_file_path)),
+        (lambda: trashed_files.append((trashed_file_path, fileToDelete,))),
+        (lambda: undos.append(
+            lambda self: (
+                print("untrashing {}".format(file)),
+                filemove(trashed_file_path, fileToDelete),
+                trashed_files.remove((trashed_file_path, fileToDelete,)),
+            ))),
+    ])
+    spool.flush()
+
+
+def really_trash_files(trashed_files):
+    spool.flush()
+    for (trashed_file_path, original_path) in trashed_files:
+        spool.enqueue(target=really_trash_file, args=(trashed_file_path, original_path,))
+        # spool.enqueue(target=send2trash, args=(trashed_file_path,))
+
+
+def really_trash_file(trashed_file_path, original_path):
+    try:
+        filemove(trashed_file_path, original_path)
+    except Exception as e:
+        print(vars())
+        print("Can't un-temp file. ")
+        raise
+    try:
+        send2trash(original_path)
+        print("{} -> [trash]".format(original_path))
+    except Exception as e:
+        print("{} -x> [trash]".format(original_path))
+        print(vars())
+        print("Can't trash un-temp'd file Putting it back. ")
+        filemove(original_path, trashed_file_path)
+        raise
+
+
 class FileSorter(tk.Tk):
 
     """Summary
@@ -155,7 +226,7 @@ class FileSorter(tk.Tk):
         self.photoImageCache = {}
         self.str_context = tk.StringVar()
         self.undo = []
-# 
+#
         self.sortkeys = {
             "{}, {}".format(name, order): (
                 lambda items, keyfunc=keyfunc, orderb=orderb: sorted(items, key=keyfunc, reverse=orderb)
@@ -181,22 +252,21 @@ class FileSorter(tk.Tk):
 
         self.sorter = sorted
 
+        self.lastwh = tuple()
+        self.onResizeCallback = None
+        
         self.initwindow()
 
         self.openDir(os.path.realpath(rootpath))
 
-        self.bind("<Control-z>", self.doUndo)
-        self.bind("<Delete>", self.askDelete)
-        self.bind("<Alt-d>", self.fastDelete)
-        self.bind("<Alt-k>", self.keepImage)
-        self.bind("<Right>", self.nextImage)
-        self.bind("<Left>", self.prevImage)
-
-        self.bind("<Configure>", self.onResize)
-        self.onResizeCallback = None
-        self.lastwh = tuple()
-
         self.mainloop()
+
+    @property
+    def currentImagePath(self):
+        if len(self.filepaths) == 0:
+            return
+        self.image_index = self.image_index % len(self.filepaths)
+        return self.filepaths[self.image_index] 
 
     def onResize(self, event):
         wh = (self.canvas.winfo_width(), self.canvas.winfo_height())
@@ -220,21 +290,61 @@ class FileSorter(tk.Tk):
         keepdir = os.path.join("keep", os.path.split(self.rootpath)[1])
         self.moveToFolder(newfoldername=keepdir)
 
+    def save_a_copy(self):
+        filepath = self.currentImagePath
+        newFileName = filedialog.asksaveasfilename(initialfile=filepath)
+        shutil.copy2(filepath, newFileName)
+
     def initwindow(self):
         """Initialize widgets for the window
         """
 
+        self.bind("<Control-z>", self.doUndo)
+        self.bind("<Delete>", self.askDelete)
+        self.bind("<Right>", self.nextImage)
+        self.bind("<Left>", self.prevImage)
+        self.bind("<Up>", self.nextImage)
+        self.bind("<Down>", self.prevImage)
+
+        self.bind("<Configure>", self.onResize)
+
         # # Header stuff # #
         # current filename label
-        self.str_curfile = tk.StringVar(value="NaN")
+        self.str_curfile = tk.StringVar(value="No Images Found")
         self.lab_curfile = tk.Label(textvariable=self.str_curfile, font=("Helvetica", 22))
         self.lab_curfile.grid(row=0, column=1)
 
         # Canvas stuff
-        self.canvas = tk.Canvas()
+        self.canvas = tk.Canvas(takefocus=True)
         self.canvas.grid(column=1, row=1, sticky=FILL)
         self.columnconfigure(1, weight=1)
         self.rowconfigure(1, weight=1)
+
+        # create a menu
+        popup = tk.Menu(self, tearoff=0)
+        popup.add_command(label="Copy to clipboard", command=lambda: copy_to_clipboard(self.currentImagePath))  # , command=next) etc...
+        popup.add_command(label="Save a copy", command=self.save_a_copy)
+        popup.add_separator()
+
+        def do_popup(event):
+            # display the popup menu
+            try:
+                popup.tk_popup(event.x_root, event.y_root, 0)
+            finally:
+                # make sure to release the grab (Tk 8.0a1 only)
+                popup.grab_release()
+
+        self.canvas.bind("<Button-3>", do_popup)
+
+        self.canvas.bind("<Button-1>", lambda event: self.canvas.focus_set())
+        self.canvas.bind("<d>", self.fastDelete)
+        self.bind("<Control-d>", self.fastDelete)
+        self.canvas.bind("<z>", self.doUndo)
+        self.canvas.bind("<e>", self.keepImage)
+        self.canvas.bind("<s>", self.keepImage)
+        self.bind("<Control-s>", self.keepImage)
+        self.canvas.bind("<k>", self.keepImage)
+        self.canvas.bind("<f>", self.nextImage)
 
         # set first image on canvas, an ImageTk.PhotoImage
         self.image_on_canvas = self.canvas.create_image(
@@ -259,19 +369,25 @@ class FileSorter(tk.Tk):
         self.rootpath = newdir
         self.generatePaths(newdir)
 
+        self.undo.clear()
+
         # Initialize data
         self.reloadDirContext()
-        self.reloadImages()
 
-        self.undo = []
         # Initialize images
         self.image_index = 0
+        self.reloadImages()
         self.imageUpdate()
 
     def labelFileName(self):
         """Generate a user-friendly filename for the header
         """
-        prettyname = os.path.split(self.filepaths[self.image_index])[1]
+        filename = self.currentImagePath
+        (w, h) = Image.open(filename).size
+        prettyname = "{} [{w}x{h}]".format(
+            os.path.split(filename)[1],
+            **vars()
+        )
         self.str_curfile.set(prettyname)
 
     # Generators and logic
@@ -355,6 +471,24 @@ class FileSorter(tk.Tk):
             self.frame_sidebar.listbox_context.selection_set(index)
             self.frame_sidebar.listbox_context.see(index)
 
+    def promptLooseCleanup(self, rootpath, destpath):
+        assert os.path.isdir(rootpath)
+        assert os.path.isdir(destpath)
+        loose_files = glob(os.path.join(rootpath, "*.*"))
+        num_loose_files = len(loose_files)
+        if num_loose_files == 0:
+            return
+        can_do_cleanup = messagebox.askyesno(
+            title="Clean up directory?",
+            message="""Move {num_loose_files} files into single directory?\n
+Files in: {rootpath}\n
+New folder: {destpath}\n\n
+Files to move: {flist}""".format(flist=", ".join(loose_files[:30]), **locals())
+        )
+        if can_do_cleanup:
+            for oldfile in loose_files:
+                filemove(oldfile, destpath)
+
     def generatePaths(self, rootpath):
         """Generate imageglobs and contextglobs for a root path
 
@@ -366,7 +500,9 @@ class FileSorter(tk.Tk):
         self.imageglobs = [
             os.path.join(rootpath, "*." + ext) for ext in IMAGEEXTS]
 
-        if os.path.exists(os.path.join(rootpath, "unsorted")):
+        subdirectory_unsorted = os.path.join(rootpath, "unsorted")
+
+        if os.path.exists(subdirectory_unsorted):
             # Put images in same-level directories
             self.contextglobs = [
                 os.path.join(rootpath, "*" + sep),
@@ -375,7 +511,10 @@ class FileSorter(tk.Tk):
 
             # Pull images from unsorted too
             self.imageglobs += [
-                os.path.join(rootpath, "unsorted", "*." + ext) for ext in IMAGEEXTS]
+                os.path.join(subdirectory_unsorted, "*." + ext) for ext in IMAGEEXTS]
+
+            self.promptLooseCleanup(rootpath, subdirectory_unsorted)
+
         else:
             # Put images in parent directories
             self.contextglobs = [
@@ -399,6 +538,7 @@ class FileSorter(tk.Tk):
         self.keymap_keys = list(self.keymap.keys())  # Constant order
         self.keycache = {}
         self.generateContextKey()
+        self.reloadImages()
 
     def reloadImages(self):
         """Reload filepaths, rescan for images.
@@ -436,10 +576,12 @@ class FileSorter(tk.Tk):
         """Update the display to match the current image index. 
         Image indexes wrap around here.
         """
+        if len(self.filepaths) == 0:
+            return
 
         # Wraparound image indicies
         prev_index = self.image_index
-        self.image_index = wraparound(self.image_index, len(self.filepaths))
+        self.image_index = self.image_index % len(self.filepaths)
         if self.image_index != prev_index:
             print("Wrapped, reloading...")
             self.reloadImages()
@@ -447,7 +589,7 @@ class FileSorter(tk.Tk):
         if len(self.filepaths) == 0:
             return self.str_curfile.set("No more images found!")
 
-        filename = self.filepaths[self.image_index]
+        filename = self.currentImagePath
 
         maxwidth = self.canvas.winfo_width()
         maxheight = self.canvas.winfo_height()
@@ -470,16 +612,16 @@ class FileSorter(tk.Tk):
     def loadPhotoImage(self, *args, **kwargs):
         try:
             self.makePhotoImage(
-                self.filepaths[wraparound(self.image_index - 1, len(self.filepaths))],
+                self.filepaths[self.image_index - 1 % len(self.filepaths)],
                 *args,
                 **kwargs
             )
             self.makePhotoImage(
-                self.filepaths[wraparound(self.image_index + 1, len(self.filepaths))],
+                self.filepaths[self.image_index + 1 % len(self.filepaths)],
                 *args,
                 **kwargs
             )
-        except (MemoryError, tk.TclError):
+        except (MemoryError, tk.TclError, ZeroDivisionError):
             print(self.photoImageCache)
             print(hex(id(self.photoImageCache)))
             print(len(self.photoImageCache))
@@ -555,7 +697,7 @@ class FileSorter(tk.Tk):
             entry (str, optional): Text of entry, if no triggering event.
         """
 
-        oldFileName = self.filepaths[self.image_index]
+        oldFileName = self.currentImagePath
         if event:
             entry = event.widget.get()
             if entry == "":
@@ -610,7 +752,7 @@ class FileSorter(tk.Tk):
     def delete(self, preconfirmed=False):
         """Delete the currently selected file
         """
-        fileToDelete = self.filepaths[self.image_index]
+        fileToDelete = self.currentImagePath
         confirmed = preconfirmed or messagebox.askyesno(
             "Confirm", "{}\nAre you sure you want to delete this file?\n(The file will be trashed, and semi-recoverable.)".format(fileToDelete))
         if confirmed:
@@ -629,7 +771,7 @@ class FileSorter(tk.Tk):
         if entry == "":
             self.nextImage()
             return
-        oldFileName = self.filepaths[self.image_index]
+        oldFileName = self.currentImagePath
         (folder, file) = os.path.split(oldFileName)
         extension = file.split(".")[-1]
         newFileName = os.path.join(folder, entry + "." + extension)
@@ -660,15 +802,16 @@ class FileSorter(tk.Tk):
         """
         if event:
             newfoldername = event.widget.get()
-        oldFileName = self.filepaths[self.image_index]
+        oldFileName = self.currentImagePath
         if newfoldername == "":
             self.nextImage()
             self.reFocusEntry()
             return
         try:
             newdir = os.path.join(self.newFolderRoot, newfoldername)
-            os.makedirs(newdir, exist_ok=True)
-            self.reloadDirContext()
+            if not os.path.isdir(newdir):
+                os.makedirs(newdir, exist_ok=True)
+                self.reloadDirContext()
             # filemove(oldFileName, newdir)
 
             spool.enqueueSeries([
@@ -700,7 +843,7 @@ class FileSorter(tk.Tk):
         # Clear field
         if event:
             event.widget.delete(0, last=tk.END)
-        self.frame_sidebar.reFocusEntry()
+        # self.frame_sidebar.reFocusEntry()
 
     def doUndo(self, event):
         """Process an undo operation, handling the stack. 
@@ -731,25 +874,6 @@ class SidebarFrame(tk.Frame):
         """
         tk.Frame.__init__(self, *args, **kwargs)
 
-        linkedFunctions = [
-            "getBestFolders",
-            "getBestFolder",
-            "labelFileName",
-            "str_curfile",
-            "nextImage",
-            "prevImage",
-            "openDir",
-            "submit",
-            "moveToFolder",
-            "dorename",
-            "imageUpdate",
-            "reloadDirContext",
-            "highlightListboxItems",
-            "reSort"
-        ]
-        for f in linkedFunctions:
-            self.__setattr__(f, parent.__getattribute__(f))
-
         self.controller = parent
         # Initialize window
         self.initwindow()
@@ -769,16 +893,16 @@ class SidebarFrame(tk.Frame):
             inOrderRow += 1
             return inOrderRow
 
-        btn_ref = ttk.Button(self, text="Open", takefocus=False, command=self.openDir)
+        btn_ref = ttk.Button(self, text="Open", takefocus=False, command=self.controller.openDir)
         btn_ref.grid(row=rowInOrder(), sticky=tk.W)
         btn_ref = ttk.Button(self, text="Refresh", takefocus=False, command=(
-            lambda: (self.reloadDirContext(), self.imageUpdate()))
+            lambda: (self.controller.reloadDirContext(), self.controller.imageUpdate()))
         )
         btn_ref.grid(row=inOrderRow, sticky=tk.E)
 
-        btn_back = ttk.Button(self, text="Prev", takefocus=False, command=self.prevImage)
+        btn_back = ttk.Button(self, text="Prev", takefocus=False, command=self.controller.prevImage)
         btn_back.grid(row=rowInOrder(), sticky=tk.W)
-        btn_skip = ttk.Button(self, text="Skip", takefocus=False, command=self.nextImage)
+        btn_skip = ttk.Button(self, text="Skip", takefocus=False, command=self.controller.nextImage)
         btn_skip.grid(row=inOrderRow, sticky=tk.E)
 
         def highlightEntry(parent):
@@ -790,7 +914,7 @@ class SidebarFrame(tk.Frame):
         lab_context_label.grid(row=rowInOrder())
 
         self.entry = highlightEntry(self)
-        self.entry.bind("<Return>", self.submit)
+        self.entry.bind("<Return>", self.controller.submit)
         self.entry.bind("<KeyRelease>", self.processEntryInput)
         self.entry.grid(row=rowInOrder(), sticky="WE")
         self.reFocusEntry()
@@ -800,7 +924,7 @@ class SidebarFrame(tk.Frame):
         lab_newfolder.grid(row=rowInOrder())
 
         self.entry_newfolder = highlightEntry(self)
-        self.entry_newfolder.bind("<Return>", self.moveToFolder)
+        self.entry_newfolder.bind("<Return>", self.controller.moveToFolder)
         self.entry_newfolder.grid(row=rowInOrder(), sticky="WE")
 
         # Setting checkboxes
@@ -820,7 +944,7 @@ class SidebarFrame(tk.Frame):
 
         self.entry_rename = highlightEntry(self)
         self.entry_rename.grid(row=rowInOrder(), sticky="WE")
-        self.entry_rename.bind("<Return>", self.dorename)
+        self.entry_rename.bind("<Return>", self.controller.dorename)
 
         # context keys
         lab_context_label = ttk.Label(self, text="Folder IDs:")
@@ -859,83 +983,24 @@ class SidebarFrame(tk.Frame):
 
         if fieldGet == "":
             event.widget.configure(bg=NORMAL)
-            self.highlightListboxItems([])
-            self.labelFileName()
+            self.controller.highlightListboxItems([])
+            self.controller.labelFileName()
             return
-        bestFolders = self.getBestFolders(fieldGet)
-        bestFolderIndices = self.getBestFolders(fieldGet, indexOnly=True)
-        self.highlightListboxItems(bestFolderIndices)
+        bestFolders = self.controller.getBestFolders(fieldGet)
+        bestFolderIndices = self.controller.getBestFolders(fieldGet, indexOnly=True)
+        self.controller.highlightListboxItems(bestFolderIndices)
         if len(bestFolderIndices) == 1:
             (bestfldrshort, bestfldrpath) = bestFolders[0]
-            self.str_curfile.set(bestfldrshort)
+            self.controller.str_curfile.set(bestfldrshort)
             event.widget.configure(bg=GOOD)
             if self.aggressive.get():
-                self.submit(entry=fieldGet)
+                self.controller.submit(entry=fieldGet)
         else:
-            # self.labelFileName()
-            self.str_curfile.set(
+            # self.controller.labelFileName()
+            self.controller.str_curfile.set(
                 ", ".join([short for (short, l) in bestFolders])
             )
             event.widget.configure(bg=BAD)
-
-
-trashdir = mkdtemp(prefix="srt-")
-trashed_files = []
-print("Opened trash directory as", trashdir)
-
-
-def trash(fileToDelete, undos=None):
-    """Args:
-        fileToDelete (str): Path to trash
-    """
-    max_trash_history = 30
-
-    (folder, file) = os.path.split(fileToDelete)
-    trashed_file_path = os.path.join(trashdir, file)
-
-    # Clean trash
-    if len(trashed_files) > max_trash_history:
-        surplus = trashed_files[:-max_trash_history]
-        really_trash_files(surplus)
-        for n in surplus:
-            trashed_files.remove(n)
-
-    spool.enqueueSeries([
-        (lambda: filemove(fileToDelete, trashed_file_path)),
-        (lambda: trashed_files.append((trashed_file_path, fileToDelete,))),
-        (lambda: undos.append(
-            lambda self: (
-                print("untrashing {}".format(file)),
-                filemove(trashed_file_path, fileToDelete),
-                trashed_files.remove((trashed_file_path, fileToDelete,)),
-            ))),
-    ])
-    spool.flush()
-
-
-def really_trash_files(trashed_files):
-    spool.flush()
-    for (trashed_file_path, original_path) in trashed_files:
-        spool.enqueue(target=really_trash_file, args=(trashed_file_path, original_path,))
-        # spool.enqueue(target=send2trash, args=(trashed_file_path,))
-        
-
-def really_trash_file(trashed_file_path, original_path):
-    try:
-        filemove(trashed_file_path, original_path)
-    except Exception as e:
-        print(vars())
-        print("Can't un-temp file. ")
-        raise    
-    try:
-        send2trash(original_path)
-        print("{} -> [trash]".format(original_path))
-    except Exception as e:
-        print("{} -x> [trash]".format(original_path))
-        print(vars())
-        print("Can't trash un-temp'd file Putting it back. ")
-        filemove(original_path, trashed_file_path)
-        raise
 
 
 def run_threaded():
@@ -947,6 +1012,7 @@ def run_threaded():
                         help="Root folder. Should contain folders, one of which can be named unsorted.")
         args = ap.parse_args()
 
+        spool.start()
         FileSorter(args.root)
     except (Exception, KeyboardInterrupt) as e:
         # Postmortem on uncaught exceptions
