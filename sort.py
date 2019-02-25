@@ -8,24 +8,29 @@ Attributes:
     WFILL (TYPE): Tk shortcut for wide sticky directions
 """
 
-import tkinter as tk
-from tkinter import ttk
 import loom
+import tkinter as tk
 
-from PIL import ImageTk, Image
-from tkinter import filedialog, messagebox
+from PIL import Image
+from PIL import ImageTk
+from tkinter import filedialog
+from tkinter import messagebox
 
-import shutil
-from glob import glob
 import os
+import shutil
+
+from glob import glob
 from os.path import sep
 from send2trash import send2trash
 from tempfile import mkdtemp
 
-import traceback
-import errno
 import argparse
+import errno
+import traceback
+
 from math import floor
+
+import snip
 
 import sbf
 
