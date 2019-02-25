@@ -111,10 +111,7 @@ def trash(fileToDelete, undos=None):
     """Args:
         fileToDelete (str): Path to trash
     """
-    max_trash_history = 30
-
-    (folder, file) = os.path.split(fileToDelete)
-    trashed_file_path = os.path.join(trashdir, file)
+    max_trash_history = 18
 
     # Clean trash
     if len(trashed_files) > max_trash_history:
@@ -272,8 +269,8 @@ class FileSorter(tk.Tk):
         self.bind("<Control-d>", self.fastDelete)
         self.bind("<Control-z>", self.doUndo)
 
-        self.bind("<Up>", self.keepImage)
-        self.bind("<Down>", self.fastDelete)
+        # self.bind("<Up>", self.keepImage)
+        # self.bind("<Down>", self.fastDelete)
         self.bind("<End>", self.doUndo)
 
         # # Header stuff # #
@@ -394,7 +391,7 @@ class FileSorter(tk.Tk):
         """
         if not newdir:
             self.update_idletasks()  # Bug with tkinter: the mainloop must loop before calling filedialog
-            newdir = os.path.realpath(filedialog.askdirectory())
+            newdir = os.path.realpath(filedialog.askdirectory(initialdir=self.rootpath))
             if newdir == '':
                 os.abort()
         self.rootpath = newdir
@@ -531,6 +528,8 @@ class FileSorter(tk.Tk):
         Returns:
             list<int>: List of valid match INDEXES. Indexes reference self.folder_names
         """
+        entry = entry.lower()
+
         fuzzy = self.frame_sidebar.fuzzy.get()
 
         if self.keycache.get(entry) is not None:
