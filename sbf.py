@@ -155,8 +155,8 @@ class SidebarFrame(tk.Frame):
             self.highlightListboxItems([])
             self.controller.labelFileName()
             return
-        bestFolders = self.controller.getBestFolders(fieldGet)
-        bestFolderIndices = self.controller.getBestFolders(fieldGet, indexOnly=True)
+        bestFolders = self.controller.getBestFolders(fieldGet.lower())
+        bestFolderIndices = self.controller.getBestFolders(fieldGet.lower(), indexOnly=True)
         self.highlightListboxItems(bestFolderIndices)
         if len(bestFolderIndices) == 1:
             (bestfldrshort, bestfldrpath) = bestFolders[0]
