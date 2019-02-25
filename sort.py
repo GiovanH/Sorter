@@ -67,26 +67,6 @@ def copy_to_clipboard(filepath):
     send_to_clipboard(win32clipboard.CF_DIB, data)
 
 
-def doFileRename(oldFileName, newFileName, confident=False):
-    """Perform a file rename operation, possibly failing.
-
-    Args:
-        oldFileName (str): Complete path to old file
-        newFileName (str): Complete path to new file
-        confident (bool, optional): Displace existing images (not clobber)
-    """
-    try:
-        print("{} -> {}".format(oldFileName, newFileName))
-        os.rename(oldFileName, newFileName)
-    except FileExistsError as e:
-        if confident:
-            print("Renaming conflicting file", e.filename2)
-            "DISPLACED_"
-            (folder, file) = os.path.split(e.filename2)
-            doFileRename(e.filename2, os.path.join(folder, "DISPLACED_" + file))
-            os.rename(oldFileName, newFileName)
-
-
 def imageSize(filename):
     """Get the number of pixels in an image
 
@@ -107,19 +87,19 @@ def imageSize(filename):
         return 0
 
 
-def filemove(src, dst):
-    """Move a file
+# def filemove(src, dst):
+#     """Move a file
 
-    Args:
-        src (str): Source path
-        dst (str): Destination path
-    """
-    print("{} -> {}".format(src, dst))
-    try:
-        shutil.move(src, dst)
-    except shutil.Error as e:
-        print(e.errno, errno.EEXIST, e.errno == errno.EEXIST)
-        traceback.print_exc()
+#     Args:
+#         src (str): Source path
+#         dst (str): Destination path
+#     """
+#     print("{} -> {}".format(src, dst))
+#     try:
+#         shutil.move(src, dst)
+#     except shutil.Error as e:
+#         print(e.errno, errno.EEXIST, e.errno == errno.EEXIST)
+#         traceback.print_exc()
 
 
 trashdir = mkdtemp(prefix="srt-")
@@ -143,13 +123,16 @@ def trash(fileToDelete, undos=None):
         for n in surplus:
             trashed_files.remove(n)
 
+    (folder, file) = os.path.split(fileToDelete)
+    trashed_file_path = os.path.join(trashdir, file)
+
     spool.enqueueSeries([
-        (lambda: filemove(fileToDelete, trashed_file_path)),
+        (lambda: snip.moveFileToFile(fileToDelete, trashed_file_path)),
         (lambda: trashed_files.append((trashed_file_path, fileToDelete,))),
         (lambda: undos.append(
             lambda self: (
                 print("untrashing {}".format(file)),
-                filemove(trashed_file_path, fileToDelete),
+                snip.moveFileToFile(trashed_file_path, fileToDelete),
                 trashed_files.remove((trashed_file_path, fileToDelete,)),
             ))),
     ])
@@ -164,7 +147,7 @@ def really_trash_files(trashed_files):
 
 def really_trash_file(trashed_file_path, original_path):
     try:
-        filemove(trashed_file_path, original_path)
+        snip.moveFileToFile(trashed_file_path, original_path)
     except Exception as e:
         print(vars())
         print("Can't un-temp file. ")
@@ -175,8 +158,8 @@ def really_trash_file(trashed_file_path, original_path):
     except Exception as e:
         print("{} -x> [trash]".format(original_path))
         print(vars())
-        print("Can't trash un-temp'd file Putting it back. ")
-        filemove(original_path, trashed_file_path)
+        print("Can't trash un-temp'd file. Putting it back. ")
+        snip.moveFileToFile(original_path, trashed_file_path)
         raise
 
 
@@ -382,7 +365,7 @@ class FileSorter(tk.Tk):
         )
         if can_do_cleanup:
             for oldfile in loose_files:
-                filemove(oldfile, destpath)
+                snip.moveFileToDir(oldfile, destpath)
 
     def populateContextKeyFrame(self):
         """Generate and refresh the sidebar listbox
@@ -460,7 +443,7 @@ class FileSorter(tk.Tk):
             entry (str, optional): Text of entry, if no triggering event.
         """
 
-        oldFileName = self.currentImagePath
+        old_file_path = self.currentImagePath
         if event:
             entry = event.widget.get()
             widget = event.widget
@@ -479,21 +462,33 @@ class FileSorter(tk.Tk):
                 "Invalid key: {}".format(entry))
             return
 
-        dst = choice
-        usubdir = os.path.join(dst, "unsorted")
+        destination_dir = choice
+        usubdir = os.path.join(destination_dir, "unsorted")
         if os.path.exists(usubdir):
-            dst = usubdir
+            destination_dir = usubdir
 
-        (folder, file) = os.path.split(oldFileName)
+        # (old_dir, file_name) = os.path.split(old_file_path)
+        # spool.enqueueSeries([
+        #     (lambda: snip.moveFileToDir(old_file_path, destination_dir)),
+        #     (lambda: self.undo.append(
+        #         lambda self: snip.moveFileToFile(os.path.join(destination_dir, file_name), old_file_path))),
+        # ])
+
+        (old_file_dir, old_file_name) = os.path.split(old_file_path)
+        new_file_path = os.path.join(destination_dir, old_file_name)
+
         spool.enqueueSeries([
-            (lambda: filemove(oldFileName, dst)),
+            (lambda: snip.moveFileToFile(old_file_path, new_file_path)),
             (lambda: self.undo.append(
-                lambda self: filemove(os.path.join(dst, file), oldFileName))),
+                lambda self: (
+                    snip.moveFileToFile(new_file_path, old_file_path),
+                ))),
         ])
-        # filemove(oldFileName, dst)
-        self.filepaths.remove(oldFileName)
+
+        # filemove(old_file_name, dst)
+        self.filepaths.remove(old_file_name)
         # self.undo.append(lambda self: filemove(
-        #     os.path.join(dst, file), oldFileName))
+        #     os.path.join(dst, file), old_file_name))
 
         # Clear field
         self.frame_sidebar.reFocusEntry()
@@ -754,7 +749,7 @@ class FileSorter(tk.Tk):
 
     def keepImage(self, event=None):
         keepdir = os.path.join("keep", os.path.split(self.rootpath)[1])
-        self.moveToFolder(newfoldername=keepdir)
+        self.moveToFolder(new_folder_name=keepdir)
 
     def save_a_copy(self):
         filepath = self.currentImagePath
@@ -795,68 +790,81 @@ class FileSorter(tk.Tk):
         if entry == "":
             self.nextImage()
             return
-        oldFileName = self.currentImagePath
-        (folder, file) = os.path.split(oldFileName)
-        extension = file.split(".")[-1]
-        newFileName = os.path.join(folder, entry + "." + extension)
 
-        spool.enqueueSeries([
-            (lambda: filemove(oldFileName, newFileName)),
-            (lambda: self.undo.append(
-                lambda: doFileRename(
-                    newFileName,
-                    oldFileName,
-                    confident=self.frame_sidebar.confident.get()
-                )))  # let's just call it Haskell
-        ])
+        old_file_path = self.currentImagePath
 
-        self.reloadImages()
+        try:
+            # if os.path.exists(newFileName):
+            #     raise FileExistsError()
+            # print("{} -> {}".format(old_file_path, newFileName))
+            (old_file_dir, old_file_name) = os.path.split(old_file_path)
+            conflicting_file_path = os.path.join(old_file_dir, entry + os.path.splitext(old_file_path)[1])
 
-        # Clear field
-        event.widget.delete(0, last=tk.END)
-        self.frame_sidebar.reFocusEntry()
+            snip.renameFileOnly(old_file_path, entry)
+            # os.rename(old_file_path, newFileName)
+        except FileExistsError as e:
+            if self.frame_sidebar.confident.get():
+                print("Renaming conflicting file", e.filename2)
+                snip.renameFileOnly(conflicting_file_path, entry + "_displaced")
+                snip.renameFileOnly(old_file_path, entry)
+            else:
+                traceback.print_exc()
+        finally:
+            self.undo.append(
+                lambda s: snip.renameFileOnly(
+                    conflicting_file_path,
+                    old_file_name
+                ))
 
-    def moveToFolder(self, event=None, newfoldername=""):
+            self.reloadImages()
+            # self.nextImage()
+
+            # Clear field
+            event.widget.delete(0, last=tk.END)
+        # self.frame_sidebar.reFocusEntry()
+
+    def moveToFolder(self, event=None, new_folder_name=""):
         """Move the current image to a folder, which can be new.
 
         Args:
             event (TYPE): Tk triggering event
         """
         if event:
-            newfoldername = event.widget.get()
-        oldFileName = self.currentImagePath
-        if newfoldername == "":
+            new_folder_name = event.widget.get()
+        old_file_name = self.currentImagePath
+        if new_folder_name == "":
             self.nextImage()
             self.frame_sidebar.reFocusEntry()
             return
         try:
-            newdir = os.path.join(self.newFolderRoot, newfoldername)
+            newdir = os.path.join(self.newFolderRoot, new_folder_name)
             if not os.path.isdir(newdir):
                 os.makedirs(newdir, exist_ok=True)
                 self.reloadDirContext()
-            # filemove(oldFileName, newdir)
+            # filemove(old_file_name, newdir)
+
+            old_folder, old_filename = os.path.split(old_file_name)
 
             spool.enqueueSeries([
-                (lambda: filemove(oldFileName, newdir)),
+                (lambda: snip.moveFileToDir(old_file_name, newdir)),
                 (lambda: self.undo.append(
-                    lambda self: (filemove(
-                        os.path.join(newdir, os.path.split(oldFileName)[1]),
-                        oldFileName))))
+                    lambda self: (snip.moveFileToFile(
+                        os.path.join(newdir, old_filename), old_file_name))))
             ])
             # spool.enqueue(
-            #     name="{} -> {}".format(oldFileName, newdir),
-            #     target=filemove, args=(oldFileName, newdir,))
-            # # doFileRename(oldFileName, newFileName,
+            #     name="{} -> {}".format(old_file_name, newdir),
+            #     target=filemove, args=(old_file_name, newdir,))
+            # # doFileRename(old_file_name, newFileName,
             # #              confident=self.frame_sidebar.confident.get())
             # spool.enqueue(
             #     name="Push move undo",
             #     target=self.undo.append,
             #     args=(lambda self: doFileRename(
-            #         os.path.join(newdir, os.path.split(oldFileName)[1]), oldFileName),
+            #         os.path.join(newdir, os.path.split(old_file_name)[1]), old_file_name),
             #     )
             # )
 
-            self.filepaths.remove(oldFileName)
+            self.filepaths.remove(old_file_name)
             self.image_index -= 1
             self.nextImage()
         except Exception:
