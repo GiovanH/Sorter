@@ -18,6 +18,7 @@ from tkinter import messagebox
 
 import os
 import shutil
+import cv2
 
 from glob import glob
 from os.path import sep
@@ -35,7 +36,9 @@ import snip
 import sbf
 
 
-IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif"]
+IMAGEEXTS = ["." + e for e in ["png", "jpg", "gif", "bmp", "jpeg", "tif"]]
+VIDEOEXTS = ["." + e for e in ["webm", "mp4"]]
+MATCHEXTS = IMAGEEXTS + VIDEOEXTS
 
 COMPLETION_KEYS = [32, 8]
 
@@ -339,11 +342,14 @@ class FileSorter(tk.Tk):
         if filename is None:
             self.str_curfile.set("No images.")
         else:
-            (w, h) = Image.open(filename).size
-            prettyname = "{} [{w}x{h}]".format(
-                os.path.split(filename)[1],
-                **vars()
-            )
+            prettyname = filename
+            __, fileext = os.path.splitext(filename)
+            if fileext in IMAGEEXTS:
+                (w, h) = Image.open(filename).size
+                prettyname = "{} [{w}x{h}]".format(
+                    os.path.split(filename)[1],
+                    **vars()
+                )
             self.str_curfile.set(prettyname)
 
     def promptLooseCleanup(self, rootpath, destpath):
@@ -351,7 +357,7 @@ class FileSorter(tk.Tk):
         assert os.path.isdir(destpath)
         loose_files = [
             f for f in glob(os.path.join(rootpath, "*.*"))
-            if f.split(".")[-1] in ['png', 'jpg', 'bmp', 'jpeg', 'gif', 'webm']
+            if f.split(".")[-1].lower() in ['png', 'jpg', 'bmp', 'jpeg', 'gif', 'webm']
         ]
         num_loose_files = len(loose_files)
         if num_loose_files == 0:
@@ -570,7 +576,7 @@ class FileSorter(tk.Tk):
         print("Generating paths for: {}".format(rootpath))
         # Pull loose images
         self.imageglobs = [
-            os.path.join(rootpath, "*." + ext) for ext in IMAGEEXTS]
+            os.path.join(rootpath, "*" + ext) for ext in MATCHEXTS]
 
         subdirectory_unsorted = os.path.join(rootpath, "unsorted")
 
@@ -583,7 +589,7 @@ class FileSorter(tk.Tk):
 
             # Pull images from unsorted too
             self.imageglobs += [
-                os.path.join(subdirectory_unsorted, "*." + ext) for ext in IMAGEEXTS]
+                os.path.join(subdirectory_unsorted, "*" + ext) for ext in MATCHEXTS]
 
             self.promptLooseCleanup(rootpath, subdirectory_unsorted)
 
@@ -700,11 +706,25 @@ class FileSorter(tk.Tk):
         """
         # pilimg = Image.open(filename)
         pilimg = self.photoImageCache.get(filename)
+        
         if not pilimg:
-            pilimg = Image.open(filename)
+            (filename_, fileext) = os.path.splitext(filename)
+            canResize = True
+            
+            if fileext in IMAGEEXTS:
+                pilimg = Image.open(filename)
+            elif fileext in VIDEOEXTS:
+                capture = cv2.VideoCapture(filename)
+                capture.grab()
+                flag, frame = capture.retrieve()
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pilimg = Image.fromarray(frame)
+            else:
+                pilimg = Image.open("fallback.png")
+                canResize = False
 
             imageIsTooBig = pilimg.width > maxwidth or pilimg.height > maxheight
-            if (imageIsTooBig or ALWAYS_RESIZE):
+            if (imageIsTooBig and canResize) or ALWAYS_RESIZE:
                 ratio = min(maxwidth / pilimg.width, maxheight / pilimg.height)
                 method = Image.ANTIALIAS
 
