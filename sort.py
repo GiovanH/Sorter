@@ -148,19 +148,20 @@ def really_trash_files(trashed_files):
 def really_trash_file(trashed_file_path, original_path):
     try:
         snip.moveFileToFile(trashed_file_path, original_path)
+        path_to_trash = original_path
     except Exception as e:
         print(vars())
-        print("Can't un-temp file. ")
-        raise
+        print("Can't un-temp file ", trashed_file_path)
+        path_to_trash = trashed_file_path
+        # raise
     try:
-        send2trash(original_path)
-        print("{} -> [trash]".format(original_path))
+        send2trash(path_to_trash)
+        print("{} -> [trash]".format(path_to_trash))
     except Exception as e:
-        print("{} -x> [trash]".format(original_path))
+        print("{} -x> [trash]".format(path_to_trash))
         print(vars())
         print("Can't trash un-temp'd file. Putting it back. ")
-        snip.moveFileToFile(original_path, trashed_file_path)
-        raise
+        snip.moveFileToFile(path_to_trash, trashed_file_path)
 
 
 class FileSorter(tk.Tk):
@@ -211,6 +212,7 @@ class FileSorter(tk.Tk):
                 ("Alphabetical", str.lower,),
                 ("Integers", lambda f: int(os.path.splitext(os.path.split(f)[1])[0]) if os.path.splitext(os.path.split(f)[1])[0].isnumeric() else -1),
                 ("File size", os.path.getsize,),
+                ("Last modified", os.path.getmtime,),
                 ("File type", lambda f: os.path.splitext(f)[1],),
                 ("Image Dimensions", imageSize,),
                 ("Image Height", lambda f: Image.open(f).size[1],),
@@ -330,9 +332,8 @@ class FileSorter(tk.Tk):
         self.columnconfigure(0, minsize=160)
 
     def quicksave(self, event=None):
-        downloads = os.path.expanduser(os.path.join("~", "Downloads"))
-        shutil.copy2(self.currentImagePath, downloads)
-        print("{} -> {}".format(self.currentImagePath, downloads))
+        downloads = snip.userProfile("Downloads")
+        snip.copyFileToDir(self.currentImagePath, downloads)
         self.bell()
 
     def labelFileName(self):
@@ -398,8 +399,12 @@ class FileSorter(tk.Tk):
         if not newdir:
             self.update_idletasks()  # Bug with tkinter: the mainloop must loop before calling filedialog
             newdir = os.path.realpath(filedialog.askdirectory(initialdir=self.rootpath))
-            if newdir == '':
-                os.abort()
+            try:
+                if os.path.relpath(newdir) == '.':
+                    return
+            except ValueError:
+                # No shared base
+                pass
         self.rootpath = newdir
         self.generatePaths(newdir)
 
@@ -419,6 +424,8 @@ class FileSorter(tk.Tk):
         # Initialize images
         self.image_index = 0
         self.reloadImages()
+
+        self.frame_sidebar.progbar_prog.configure(maximum=len(self.filepaths))
 
     def reloadDirContext(self):
         """Reload globs, keys, and context for our directory.
@@ -489,7 +496,7 @@ class FileSorter(tk.Tk):
         ])
 
         # filemove(old_file_name, dst)
-        self.filepaths.remove(old_file_name)
+        self.filepaths.remove(old_file_path)
         # self.undo.append(lambda self: filemove(
         #     os.path.join(dst, file), old_file_name))
 
@@ -555,13 +562,15 @@ class FileSorter(tk.Tk):
             keys = self.folder_names
             # There is not a perfect mapping
             matchindices = [k.find(entry) for k in keys]
-            if fuzzy:
-                matches = [i for i in range(0, len(matchindices)) if matchindices[i] != -1]
-            else:
-                matches = [i for i in range(0, len(matchindices)) if matchindices[i] == 0]
+            matches = [i for i in range(0, len(matchindices)) if matchindices[i] == 0]
             if len(matches) == 1:
                 self.keycache[entry] = matches[0]    # Learn.
                 print("Learning: {} : {}".format(entry, matches[0]))
+            elif fuzzy:
+                matches = [i for i in range(0, len(matchindices)) if matchindices[i] != -1]
+                if len(matches) == 1:
+                    self.keycache[entry] = matches[0]    # Learn.
+                    print("Learning: {} : {}".format(entry, matches[0]))
             if indexOnly:
                 return matches
             else:
@@ -639,6 +648,11 @@ class FileSorter(tk.Tk):
         """Update the display to match the current image index.
         Image indexes wrap around here.
         """
+        print("I: {}/{}".format(self.image_index, len(self.filepaths)))
+        self.frame_sidebar.progbar_seek.configure(maximum=len(self.filepaths))
+        self.frame_sidebar.var_progbar_seek.set(self.image_index + 1)
+        self.frame_sidebar.var_progbar_prog.set(len(self.filepaths))
+
         if len(self.filepaths) == 0:
             self.str_curfile.set("No more images found!")
             self.canvas.itemconfig(self.image_on_canvas, image=None)
@@ -649,8 +663,10 @@ class FileSorter(tk.Tk):
         self.image_index = self.image_index % len(self.filepaths)
         if self.image_index != prev_index:
             print("Wrapped, reloading...")
+            print("W: {}/{}".format(self.image_index, len(self.filepaths)))
             self.reloadImages()
 
+        print("F: {}/{}".format(self.image_index, len(self.filepaths)))
         filename = self.currentImagePath
 
         maxwidth = self.canvas.winfo_width()
@@ -771,11 +787,10 @@ class FileSorter(tk.Tk):
         self.moveToFolder(new_folder_name=keepdir)
 
     def save_a_copy(self):
-        filepath = self.currentImagePath
         newFileName = filedialog.asksaveasfilename(
-            initialfile=os.path.basename(filepath)
+            initialfile=os.path.basename(self.currentImagePath)
         )
-        shutil.copy2(filepath, newFileName)
+        snip.copyFileToFile(self.currentImagePath, newFileName)
 
     def addUnsortedToBase(self):
         os.makedirs(os.path.join(self.rootpath, "Unsorted"))

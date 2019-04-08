@@ -114,6 +114,14 @@ class SidebarFrame(tk.Frame):
         self.combobox_sorter.bind("<<ComboboxSelected>>", self.on_adjust_sort)
         self.combobox_sorter.grid(row=rowInOrder(), sticky="WE")
 
+        self.var_progbar_seek = tk.IntVar()
+        self.progbar_seek = ttk.Progressbar(self, variable=self.var_progbar_seek)
+        self.progbar_seek.grid(row=rowInOrder(), sticky="WE")
+
+        self.var_progbar_prog = tk.IntVar()
+        self.progbar_prog = ttk.Progressbar(self, variable=self.var_progbar_prog)
+        self.progbar_prog.grid(row=rowInOrder(), sticky="WE")
+
         self.highlightListboxItems([])
 
     def highlightListboxItems(self, matches):
@@ -155,8 +163,8 @@ class SidebarFrame(tk.Frame):
             self.highlightListboxItems([])
             self.controller.labelFileName()
             return
-        bestFolders = self.controller.getBestFolders(fieldGet.lower())
-        bestFolderIndices = self.controller.getBestFolders(fieldGet.lower(), indexOnly=True)
+        bestFolders = self.controller.getBestFolders(fieldGet)
+        bestFolderIndices = self.controller.getBestFolders(fieldGet, indexOnly=True)
         self.highlightListboxItems(bestFolderIndices)
         if len(bestFolderIndices) == 1:
             (bestfldrshort, bestfldrpath) = bestFolders[0]
