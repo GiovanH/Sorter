@@ -345,7 +345,7 @@ class FileSorter(tk.Tk):
         else:
             prettyname = filename
             __, fileext = os.path.splitext(filename)
-            if fileext in IMAGEEXTS:
+            if fileext.lower() in IMAGEEXTS:
                 (w, h) = Image.open(filename).size
                 prettyname = "{} [{w}x{h}]".format(
                     os.path.split(filename)[1],
@@ -727,9 +727,9 @@ class FileSorter(tk.Tk):
             (filename_, fileext) = os.path.splitext(filename)
             canResize = True
             
-            if fileext in IMAGEEXTS:
+            if fileext.lower() in IMAGEEXTS:
                 pilimg = Image.open(filename)
-            elif fileext in VIDEOEXTS:
+            elif fileext.lower() in VIDEOEXTS:
                 capture = cv2.VideoCapture(filename)
                 capture.grab()
                 flag, frame = capture.retrieve()
