@@ -36,7 +36,7 @@ import snip
 import sbf
 
 
-IMAGEEXTS = ["." + e for e in ["png", "jpg", "gif", "bmp", "jpeg", "tif"]]
+IMAGEEXTS = ["." + e for e in ["png", "jpg", "gif", "bmp", "jpeg", "tif", "gifv", "jfif"]]
 VIDEOEXTS = ["." + e for e in ["webm", "mp4"]]
 MATCHEXTS = IMAGEEXTS + VIDEOEXTS
 
@@ -339,18 +339,19 @@ class FileSorter(tk.Tk):
     def labelFileName(self):
         """Generate a user-friendly filename for the header
         """
-        filename = self.currentImagePath
-        if filename is None:
+        filepath = self.currentImagePath
+        if filepath is None:
             self.str_curfile.set("No images.")
         else:
-            prettyname = filename
-            __, fileext = os.path.splitext(filename)
+            prettyname = filepath
+            __, fileext = os.path.splitext(filepath)
             if fileext.lower() in IMAGEEXTS:
-                (w, h) = Image.open(filename).size
+                (w, h) = Image.open(filepath).size
                 prettyname = "{} [{w}x{h}]".format(
-                    os.path.split(filename)[1],
+                    os.path.split(filepath)[1],
                     **vars()
                 )
+            prettyname += " [{}]".format(snip.bytes_to_string(os.path.getsize(filepath)))
             self.str_curfile.set(prettyname)
 
     def promptLooseCleanup(self, rootpath, destpath):
@@ -358,7 +359,7 @@ class FileSorter(tk.Tk):
         assert os.path.isdir(destpath)
         loose_files = [
             f for f in glob(os.path.join(rootpath, "*.*"))
-            if f.split(".")[-1].lower() in ['png', 'jpg', 'bmp', 'jpeg', 'gif', 'webm']
+            if os.path.splitext(f)[1].lower() in IMAGEEXTS + VIDEOEXTS
         ]
         num_loose_files = len(loose_files)
         if num_loose_files == 0:
@@ -656,7 +657,7 @@ class FileSorter(tk.Tk):
         if len(self.filepaths) == 0:
             self.str_curfile.set("No more images found!")
             self.canvas.itemconfig(self.image_on_canvas, image=None)
-            return 
+            return
 
         # Wraparound image indicies
         prev_index = self.image_index
@@ -722,11 +723,11 @@ class FileSorter(tk.Tk):
         """
         # pilimg = Image.open(filename)
         pilimg = self.photoImageCache.get(filename)
-        
+
         if not pilimg:
             (filename_, fileext) = os.path.splitext(filename)
             canResize = True
-            
+
             if fileext.lower() in IMAGEEXTS:
                 pilimg = Image.open(filename)
             elif fileext.lower() in VIDEOEXTS:
