@@ -164,6 +164,63 @@ def really_trash_file(trashed_file_path, original_path):
         snip.moveFileToFile(path_to_trash, trashed_file_path)
 
 
+def md5(path):
+    import hashlib
+    """Gives the md5 hash of a file on disk.
+    Args:
+        path (str): Path to a file
+    
+    Returns:
+        str: MD5 hex digest
+    """
+    with open(path, 'rb') as afile:
+        h = hashlib.md5()
+        h.update(afile.read())
+        return h.hexdigest()
+
+
+def isImage(filename):
+    """
+    Args:
+        filename (str): Path to a file
+
+    Returns:
+        bool: True if the path points to an image, else False.
+    """
+    try:
+        return os.path.splitext(filename)[1].lower() in IMAGEEXTS
+    except IndexError:
+        # No extension
+        return False
+
+
+def isVideo(filename):
+    """
+    Args:
+        filename (str): Path to a file
+
+    Returns:
+        bool: True if the path points to an video, else False.
+    """
+    try:
+        return os.path.splitext(filename)[1].lower() in VIDEOEXTS
+    except IndexError:
+        # No extension
+        return False
+
+
+def fingerprintImage(image_path):
+    import imagehash
+    if not isImage(image_path):
+        proc_hash = md5(image_path)
+    else:
+        image = Image.open(image_path)
+        proc_hash = str(imagehash.dhash(image, hash_size=10))
+        # Compress:
+        # proc_hash = proc_hash.decode("hex").encode("base64")
+    return proc_hash
+
+
 class FileSorter(tk.Tk):
 
     """Summary
@@ -216,7 +273,8 @@ class FileSorter(tk.Tk):
                 ("File type", lambda f: os.path.splitext(f)[1],),
                 ("Image Dimensions", imageSize,),
                 ("Image Height", lambda f: Image.open(f).size[1],),
-                ("Image Width", lambda f: Image.open(f).size[0],)
+                ("Image Width", lambda f: Image.open(f).size[0],),
+                ("Procedural hash", fingerprintImage,)
             ]
             for (order, orderb) in [
                 ("asc", False,), ("desc", True,)
