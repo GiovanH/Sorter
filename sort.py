@@ -31,6 +31,8 @@ import traceback
 
 from math import floor
 
+import pymaybe
+
 import snip
 
 import sbf
@@ -272,8 +274,8 @@ class FileSorter(tk.Tk):
                 ("Last modified", os.path.getmtime,),
                 ("File type", lambda f: os.path.splitext(f)[1],),
                 ("Image Dimensions", imageSize,),
-                ("Image Height", lambda f: Image.open(f).size[1],),
-                ("Image Width", lambda f: Image.open(f).size[0],),
+                ("Image Height", lambda f: pymaybe.maybe(Image.open(f).size[1]).or_else(0),),
+                ("Image Width", lambda f: pymaybe.maybe(Image.open(f).size[0]).or_else(0),),
                 ("Procedural hash", fingerprintImage,)
             ]
             for (order, orderb) in [
