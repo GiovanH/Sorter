@@ -38,8 +38,10 @@ import snip
 import sbf
 
 
-IMAGEEXTS = ["." + e for e in ["png", "jpg", "gif", "bmp", "jpeg", "tif", "gifv", "jfif"]]
-VIDEOEXTS = ["." + e for e in ["webm", "mp4"]]
+IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif", "gifv", "jfif"]
+VIDEOEXTS = ["webm", "mp4"]
+_IMAGEEXTS = ["." + e for e in IMAGEEXTS]
+_VIDEOEXTS = ["." + e for e in VIDEOEXTS]
 MATCHEXTS = IMAGEEXTS + VIDEOEXTS
 
 COMPLETION_KEYS = [32, 8]
@@ -262,6 +264,8 @@ class FileSorter(tk.Tk):
         self.photoImageCache = {}
         self.str_context = tk.StringVar()
         self.undo = []
+        self.filepaths = []
+        self.match_extensions = match_extensions
 
         self.sortkeys = {
             "{}, {}".format(name, order): (
@@ -419,7 +423,7 @@ class FileSorter(tk.Tk):
         assert os.path.isdir(destpath)
         loose_files = [
             f for f in glob(os.path.join(rootpath, "*.*"))
-            if os.path.splitext(f)[1].lower() in IMAGEEXTS + VIDEOEXTS
+            if os.path.splitext(f)[1].lower() in self.match_extensions
         ]
         num_loose_files = len(loose_files)
         if num_loose_files == 0:
@@ -646,7 +650,9 @@ class FileSorter(tk.Tk):
         print("Generating paths for: {}".format(rootpath))
         # Pull loose images
         self.imageglobs = [
-            os.path.join(rootpath, "*" + ext) for ext in MATCHEXTS]
+            os.path.join(rootpath, "*" + ext) for ext in self.match_extensions]
+
+        print(self.imageglobs)
 
         subdirectory_unsorted = os.path.join(rootpath, "unsorted")
 
@@ -659,7 +665,7 @@ class FileSorter(tk.Tk):
 
             # Pull images from unsorted too
             self.imageglobs += [
-                os.path.join(subdirectory_unsorted, "*" + ext) for ext in MATCHEXTS]
+                os.path.join(subdirectory_unsorted, "*" + ext) for ext in self.match_extensions]
 
             self.promptLooseCleanup(rootpath, subdirectory_unsorted)
 
@@ -670,6 +676,7 @@ class FileSorter(tk.Tk):
                 os.path.join(rootpath, "..", ".." + sep)
             ]
             rootpath = os.path.join(rootpath, "..")
+        print(self.contextglobs)
         self.newFolderRoot = rootpath  # Where we make new folders
 
     # def backspace(self, event):
@@ -997,10 +1004,13 @@ def run_threaded():
         ap = argparse.ArgumentParser()
         ap.add_argument("-r", "--root",
                         help="Root folder. Should contain folders, one of which can be named unsorted.")
+        ap.add_argument(
+            "-e", "--extensions", nargs='+', default=MATCHEXTS,
+            help="Substrings in the path to penalize during file sorting.")
         args = ap.parse_args()
 
         spool.start()
-        FileSorter(args.root)
+        FileSorter(args.root, ["." + e for e in args.extensions])
     except (Exception, KeyboardInterrupt) as e:
         # Postmortem on uncaught exceptions
         traceback.print_exc()
