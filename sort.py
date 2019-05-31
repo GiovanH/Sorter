@@ -8,17 +8,18 @@ Attributes:
     WFILL (TYPE): Tk shortcut for wide sticky directions
 """
 
-import loom
 import tkinter as tk
+
+from snip import loom
 
 from PIL import Image
 from PIL import ImageTk
 from tkinter import filedialog
 from tkinter import messagebox
 
+import cv2
 import os
 import shutil
-import cv2
 
 from glob import glob
 from os.path import sep
@@ -131,12 +132,12 @@ def trash(fileToDelete, undos=None):
     trashed_file_path = os.path.join(trashdir, file)
 
     spool.enqueueSeries([
-        (lambda: snip.moveFileToFile(fileToDelete, trashed_file_path)),
+        (lambda: snip.filesystem.moveFileToFile(fileToDelete, trashed_file_path)),
         (lambda: trashed_files.append((trashed_file_path, fileToDelete,))),
         (lambda: undos.append(
             lambda self: (
                 print("untrashing {}".format(file)),
-                snip.moveFileToFile(trashed_file_path, fileToDelete),
+                snip.filesystem.moveFileToFile(trashed_file_path, fileToDelete),
                 trashed_files.remove((trashed_file_path, fileToDelete,)),
             ))),
     ])
@@ -151,7 +152,7 @@ def really_trash_files(trashed_files):
 
 def really_trash_file(trashed_file_path, original_path):
     try:
-        snip.moveFileToFile(trashed_file_path, original_path)
+        snip.filesystem.moveFileToFile(trashed_file_path, original_path)
         path_to_trash = original_path
     except Exception as e:
         print(vars())
@@ -165,7 +166,7 @@ def really_trash_file(trashed_file_path, original_path):
         print("{} -x> [trash]".format(path_to_trash))
         print(vars())
         print("Can't trash un-temp'd file. Putting it back. ")
-        snip.moveFileToFile(path_to_trash, trashed_file_path)
+        snip.filesystem.moveFileToFile(path_to_trash, trashed_file_path)
 
 
 def md5(path):
@@ -192,7 +193,7 @@ def isImage(filename):
         bool: True if the path points to an image, else False.
     """
     try:
-        return os.path.splitext(filename)[1].lower() in IMAGEEXTS
+        return os.path.splitext(filename)[1].lower() in _IMAGEEXTS
     except IndexError:
         # No extension
         return False
@@ -207,7 +208,7 @@ def isVideo(filename):
         bool: True if the path points to an video, else False.
     """
     try:
-        return os.path.splitext(filename)[1].lower() in VIDEOEXTS
+        return os.path.splitext(filename)[1].lower() in _VIDEOEXTS
     except IndexError:
         # No extension
         return False
@@ -249,7 +250,7 @@ class FileSorter(tk.Tk):
         undo (list): Stack of functions to process via ctrl+z
     """
 
-    def __init__(self, rootpath, *args, **kwargs):
+    def __init__(self, rootpath, match_extensions, *args, **kwargs):
         """File sorter main window
 
         Passthrough to tk.Tk
@@ -300,7 +301,7 @@ class FileSorter(tk.Tk):
 
         self.initwindow()
 
-        self.openDir(os.path.realpath(rootpath))
+        self.openDir(snip.filesystem.userProfile("Downloads"))
 
         self.mainloop()
 
@@ -312,6 +313,7 @@ class FileSorter(tk.Tk):
             # Window has not been resized, just moved.
             return
         else:
+            print(self.lastwh, "->", wh)
             self.lastwh = wh
 
         # Clear waiting callbacks
@@ -320,6 +322,7 @@ class FileSorter(tk.Tk):
 
         def orc():
             self.photoImageCache.clear()
+            print("resized, reloading")
             self.imageUpdate()
         self.onResizeCallback = self.after(25, orc)
         # self.onResizeCallback = self.after_idle(orc)
@@ -396,8 +399,8 @@ class FileSorter(tk.Tk):
         self.columnconfigure(0, minsize=160)
 
     def quicksave(self, event=None):
-        downloads = snip.userProfile("Downloads")
-        snip.copyFileToDir(self.currentImagePath, downloads)
+        downloads = snip.filesystem.userProfile("Downloads")
+        snip.filesystem.copyFileToDir(self.currentImagePath, downloads)
         self.bell()
 
     def labelFileName(self):
@@ -409,13 +412,16 @@ class FileSorter(tk.Tk):
         else:
             prettyname = filepath
             __, fileext = os.path.splitext(filepath)
-            if fileext.lower() in IMAGEEXTS:
-                (w, h) = Image.open(filepath).size
-                prettyname = "{} [{w}x{h}]".format(
-                    os.path.split(filepath)[1],
-                    **vars()
-                )
-            prettyname += " [{}]".format(snip.bytes_to_string(os.path.getsize(filepath)))
+            if fileext.lower() in _IMAGEEXTS:
+                try:
+                    (w, h) = Image.open(filepath).size
+                    prettyname = "{} [{w}x{h}]".format(
+                        os.path.split(filepath)[1],
+                        **vars()
+                    )
+                except OSError:
+                    pass  # Fallback to filepath
+            prettyname += " [{}]".format(snip.string.bytes_to_string(os.path.getsize(filepath)))
             self.str_curfile.set(prettyname)
 
     def promptLooseCleanup(self, rootpath, destpath):
@@ -434,7 +440,7 @@ class FileSorter(tk.Tk):
         )
         if can_do_cleanup:
             for oldfile in loose_files:
-                snip.moveFileToDir(oldfile, destpath)
+                snip.filesystem.moveFileToDir(oldfile, destpath)
 
     def populateContextKeyFrame(self):
         """Generate and refresh the sidebar listbox
@@ -553,10 +559,10 @@ class FileSorter(tk.Tk):
         new_file_path = os.path.join(destination_dir, old_file_name)
 
         spool.enqueueSeries([
-            (lambda: snip.moveFileToFile(old_file_path, new_file_path)),
+            (lambda: snip.filesystem.moveFileToFile(old_file_path, new_file_path)),
             (lambda: self.undo.append(
                 lambda self: (
-                    snip.moveFileToFile(new_file_path, old_file_path),
+                    snip.filesystem.moveFileToFile(new_file_path, old_file_path),
                 ))),
         ])
 
@@ -722,6 +728,7 @@ class FileSorter(tk.Tk):
         self.frame_sidebar.var_progbar_prog.set(len(self.filepaths))
 
         if len(self.filepaths) == 0:
+            self.image_index = 0
             self.str_curfile.set("No more images found!")
             self.canvas.itemconfig(self.image_on_canvas, image=None)
             return
@@ -741,7 +748,7 @@ class FileSorter(tk.Tk):
         maxheight = self.canvas.winfo_height()
         # Let window load
         if maxwidth == maxheight == 1:
-            return self.canvas.after(100, self.imageUpdate)
+            return self.after(200, self.imageUpdate)
 
         try:
             self.curimg = self.makePhotoImage(filename, maxwidth, maxheight)
@@ -795,17 +802,19 @@ class FileSorter(tk.Tk):
             (filename_, fileext) = os.path.splitext(filename)
             canResize = True
 
-            if fileext.lower() in IMAGEEXTS:
-                pilimg = Image.open(filename)
-            elif fileext.lower() in VIDEOEXTS:
-                capture = cv2.VideoCapture(filename)
-                capture.grab()
-                flag, frame = capture.retrieve()
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                pilimg = Image.fromarray(frame)
-            else:
+            try:
+                if fileext.lower() in _IMAGEEXTS:
+                    pilimg = Image.open(filename)
+                elif fileext.lower() in _VIDEOEXTS:
+                    capture = cv2.VideoCapture(filename)
+                    capture.grab()
+                    flag, frame = capture.retrieve()
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    pilimg = Image.fromarray(frame)
+                else:
+                    raise OSError("Exception reading image")
+            except OSError:
                 pilimg = Image.open("fallback.png")
-                canResize = False
 
             imageIsTooBig = pilimg.width > maxwidth or pilimg.height > maxheight
             if (imageIsTooBig and canResize) or ALWAYS_RESIZE:
@@ -858,7 +867,7 @@ class FileSorter(tk.Tk):
         newFileName = filedialog.asksaveasfilename(
             initialfile=os.path.basename(self.currentImagePath)
         )
-        snip.copyFileToFile(self.currentImagePath, newFileName)
+        snip.filesystem.copyFileToFile(self.currentImagePath, newFileName)
 
     def addUnsortedToBase(self):
         os.makedirs(os.path.join(self.rootpath, "Unsorted"))
@@ -902,18 +911,18 @@ class FileSorter(tk.Tk):
             (old_file_dir, old_file_name) = os.path.split(old_file_path)
             conflicting_file_path = os.path.join(old_file_dir, entry + os.path.splitext(old_file_path)[1])
 
-            snip.renameFileOnly(old_file_path, entry)
+            snip.filesystem.renameFileOnly(old_file_path, entry)
             # os.rename(old_file_path, newFileName)
         except FileExistsError as e:
             if self.frame_sidebar.confident.get():
                 print("Renaming conflicting file", e.filename2)
-                snip.renameFileOnly(conflicting_file_path, entry + "_displaced")
-                snip.renameFileOnly(old_file_path, entry)
+                snip.filesystem.renameFileOnly(conflicting_file_path, entry + "_displaced")
+                snip.filesystem.renameFileOnly(old_file_path, entry)
             else:
                 traceback.print_exc()
         finally:
             self.undo.append(
-                lambda s: snip.renameFileOnly(
+                lambda s: snip.filesystem.renameFileOnly(
                     conflicting_file_path,
                     old_file_name
                 ))
@@ -948,7 +957,7 @@ class FileSorter(tk.Tk):
             old_folder, old_filename = os.path.split(old_file_name)
 
             spool.enqueueSeries([
-                (lambda: snip.moveFileToDir(old_file_name, newdir)),
+                (lambda: snip.filesystem.moveFileToDir(old_file_name, newdir)),
                 (lambda: self.undo.append(
                     lambda self: (snip.moveFileToFile(
                         os.path.join(newdir, old_filename), old_file_name))))
@@ -1000,6 +1009,7 @@ class FileSorter(tk.Tk):
 def run_threaded():
     """Run the program with threading support
     """
+
     try:
         ap = argparse.ArgumentParser()
         ap.add_argument("-r", "--root",
