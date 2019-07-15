@@ -24,6 +24,7 @@ from send2trash import send2trash
 from tempfile import mkdtemp
 
 import argparse
+import traceback
 
 import pymaybe
 
