@@ -13,13 +13,10 @@ import tkinter as tk
 from snip import loom
 
 from PIL import Image
-from PIL import ImageTk
 from tkinter import filedialog
 from tkinter import messagebox
 
-import cv2
 import os
-import shutil
 
 from glob import glob
 from os.path import sep
@@ -27,17 +24,13 @@ from send2trash import send2trash
 from tempfile import mkdtemp
 
 import argparse
-import errno
-import traceback
-
-from math import floor
 
 import pymaybe
 
 import snip
 
 import sbf
-
+from contentcanvas import ContentCanvas
 
 IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif", "gifv", "jfif"]
 VIDEOEXTS = ["webm", "mp4"]
@@ -131,15 +124,15 @@ def trash(fileToDelete, undos=None):
     (folder, file) = os.path.split(fileToDelete)
     trashed_file_path = os.path.join(trashdir, file)
 
+    def untrash(self):
+        print("untrashing {}".format(file))
+        snip.filesystem.moveFileToFile(trashed_file_path, fileToDelete)
+        trashed_files.remove((trashed_file_path, fileToDelete,))
+
     spool.enqueueSeries([
         (lambda: snip.filesystem.moveFileToFile(fileToDelete, trashed_file_path)),
         (lambda: trashed_files.append((trashed_file_path, fileToDelete,))),
-        (lambda: undos.append(
-            lambda self: (
-                print("untrashing {}".format(file)),
-                snip.filesystem.moveFileToFile(trashed_file_path, fileToDelete),
-                trashed_files.remove((trashed_file_path, fileToDelete,)),
-            ))),
+        (lambda: undos.append(untrash)),
     ])
 
 
@@ -154,7 +147,7 @@ def really_trash_file(trashed_file_path, original_path):
     try:
         snip.filesystem.moveFileToFile(trashed_file_path, original_path)
         path_to_trash = original_path
-    except Exception as e:
+    except Exception:
         print(vars())
         print("Can't un-temp file ", trashed_file_path)
         path_to_trash = trashed_file_path
@@ -162,7 +155,7 @@ def really_trash_file(trashed_file_path, original_path):
     try:
         send2trash(path_to_trash)
         print("{} -> [trash]".format(path_to_trash))
-    except Exception as e:
+    except Exception:
         print("{} -x> [trash]".format(path_to_trash))
         print(vars())
         print("Can't trash un-temp'd file. Putting it back. ")
@@ -238,7 +231,6 @@ class FileSorter(tk.Tk):
         filepaths (TYPE): Description
         frame_sidebar (TYPE): Description
         image_index (int): Description
-        image_on_canvas (TYPE): Description
         imageglobs (TYPE): Description
         keycache (dict): Description
         folders_by_name (TYPE): Description
@@ -262,7 +254,6 @@ class FileSorter(tk.Tk):
         super(FileSorter, self).__init__(*args, **kwargs)
 
         self.image_index = 0
-        self.photoImageCache = {}
         self.str_context = tk.StringVar()
         self.undo = []
         self.filepaths = []
@@ -313,7 +304,6 @@ class FileSorter(tk.Tk):
             # Window has not been resized, just moved.
             return
         else:
-            print(self.lastwh, "->", wh)
             self.lastwh = wh
 
         # Clear waiting callbacks
@@ -321,15 +311,17 @@ class FileSorter(tk.Tk):
             self.after_cancel(self.onResizeCallback)
 
         def orc():
-            self.photoImageCache.clear()
-            print("resized, reloading")
-            self.imageUpdate()
+            self.canvas.markAllDirty()
+            print("Resized:", self.lastwh, "->", wh)
+            self.imageUpdate("Window resized")
         self.onResizeCallback = self.after(25, orc)
         # self.onResizeCallback = self.after_idle(orc)
 
     def initwindow(self):
         """Initialize widgets for the window
         """
+
+        self.geometry("860x600")
 
         self.bind("<Delete>", self.askDelete)
         self.bind("<Right>", self.nextImage)
@@ -352,7 +344,7 @@ class FileSorter(tk.Tk):
         self.lab_curfile.grid(row=0, column=1)
 
         # Canvas stuff
-        self.canvas = tk.Canvas(takefocus=True)
+        self.canvas = ContentCanvas(self, takefocus=True)
         self.canvas.grid(column=1, row=1, sticky="nsew")
         self.columnconfigure(1, weight=1)
         self.rowconfigure(1, weight=1)
@@ -384,10 +376,6 @@ class FileSorter(tk.Tk):
         self.canvas.bind("<w>", self.quicksave)
 
         self.canvas.bind("<a>", self.doUndo)
-
-        # set first image on canvas, an ImageTk.PhotoImage
-        self.image_on_canvas = self.canvas.create_image(
-            0, 0, anchor=tk.N + tk.W)
 
         self.frame_sidebar = sbf.SidebarFrame(
             self,
@@ -494,7 +482,7 @@ class FileSorter(tk.Tk):
 
         # Initialize images
         self.image_index = 0
-        self.reloadImages()
+        # self.resortImageList() #  done in reloadDirContext
 
         self.frame_sidebar.progbar_prog.configure(maximum=len(self.filepaths))
 
@@ -506,14 +494,14 @@ class FileSorter(tk.Tk):
         self.folder_names = list(self.folders_by_name.keys())  # Constant order
         self.keycache = {}
         self.populateContextKeyFrame()
-        self.reloadImages()
+        self.resortImageList()
 
-    def reloadImages(self):
+    def resortImageList(self):
         """Reload filepaths, rescan for images.
         """
-        print("Reloading, sorting")
+        print("Resorting image list")
         self.filepaths = self.sorter(sum([glob(a) for a in self.imageglobs], []))
-        self.imageUpdate()
+        self.imageUpdate("Resorted image list")
 
     # Generators and logic
 
@@ -582,7 +570,7 @@ class FileSorter(tk.Tk):
             widget.after(600, lambda: (widget.config(
                 state='normal'), widget.delete(0, last=tk.END)))
 
-        self.imageUpdate()
+        self.imageUpdate("Submit")
 
     def getBestFolder(self, entry, indexOnly=False):
         """Wrapper around getBestFolders to find a single best folder.
@@ -659,7 +647,7 @@ class FileSorter(tk.Tk):
         self.imageglobs = [
             os.path.join(rootpath, "*" + ext) for ext in self.match_extensions]
 
-        print(self.imageglobs)
+        print("Image Globs:", self.imageglobs)
 
         subdirectory_unsorted = os.path.join(rootpath, "unsorted")
 
@@ -683,7 +671,7 @@ class FileSorter(tk.Tk):
                 os.path.join(rootpath, "..", ".." + sep)
             ]
             rootpath = os.path.join(rootpath, "..")
-        print(self.contextglobs)
+        print("Context globs:", self.contextglobs)
         self.newFolderRoot = rootpath  # Where we make new folders
 
     # def backspace(self, event):
@@ -692,15 +680,14 @@ class FileSorter(tk.Tk):
 
     # Backend updates
 
-    def reSort(self):
-        # self.reloadDirContext()
-        self.canvas.itemconfig(self.image_on_canvas, state="hidden")
-        self.update_idletasks()
-        print("(Re)sorting")
-        self.filepaths = self.sorter(self.filepaths)
-        self.image_index = 0
-        self.imageUpdate()
-        self.canvas.itemconfig(self.image_on_canvas, state="normal")
+    # def reSort(self):
+    #     # self.reloadDirContext()
+    #     self.canvas.clear()
+    #     self.update_idletasks()
+    #     print("(Re)sorting")
+    #     self.filepaths = self.sorter(self.filepaths)
+    #     self.image_index = 0
+    #     self.imageUpdate()
 
     def nextImage(self, event=None):
         """Show the next image
@@ -709,7 +696,7 @@ class FileSorter(tk.Tk):
             event (optional): tk triggering event
         """
         self.image_index += 1
-        self.imageUpdate()
+        self.imageUpdate("Next image")
 
     def prevImage(self, event=None):
         """Show the previous image
@@ -718,13 +705,16 @@ class FileSorter(tk.Tk):
             event (optional): tk triggering event
         """
         self.image_index -= 1
-        self.imageUpdate()
+        self.imageUpdate("Prev image")
 
     def imageUpdate(self, event=None):
-        """Update the display to match the current image index.
-        Image indexes wrap around here.
-        """
-        print("I: {}/{}".format(self.image_index, len(self.filepaths)))
+        print(
+            "Image Update: {}/{} (Cause: {})".format(
+                self.image_index, 
+                len(self.filepaths), 
+                event
+            )
+        )
         self.frame_sidebar.progbar_seek.configure(maximum=len(self.filepaths))
         self.frame_sidebar.var_progbar_seek.set(self.image_index + 1)
         self.frame_sidebar.var_progbar_prog.set(len(self.filepaths))
@@ -732,7 +722,7 @@ class FileSorter(tk.Tk):
         if len(self.filepaths) == 0:
             self.image_index = 0
             self.str_curfile.set("No more images found!")
-            self.canvas.itemconfig(self.image_on_canvas, image=None)
+            self.canvas.clear()
             return
 
         # Wraparound image indicies
@@ -740,125 +730,13 @@ class FileSorter(tk.Tk):
         self.image_index = self.image_index % len(self.filepaths)
         if self.image_index != prev_index:
             print("Wrapped, reloading...")
-            print("W: {}/{}".format(self.image_index, len(self.filepaths)))
-            if self.frame_sidebar.auto_reload.get():
-                self.reloadImages()
+            print("W: {}/{}".format(self.image_index, len(self.filepaths) - 1))
+            # if self.frame_sidebar.auto_reload.get():
+            #     self.resortImageList()
 
-        print("F: {}/{}".format(self.image_index, len(self.filepaths)))
-        filename = self.currentImagePath
-
-        maxwidth = self.canvas.winfo_width()
-        maxheight = self.canvas.winfo_height()
-        # Let window load
-        if maxwidth == maxheight == 1:
-            return self.after(200, self.imageUpdate)
-
-        try:
-            self.curimg = self.makePhotoImage(filename, maxwidth, maxheight)
-        except (OSError, SyntaxError, tk.TclError) as e:
-            print("[{}] Bad image: ".format(e) + filename)
-            traceback.print_exc()
-            self.filepaths.remove(filename)
-            return self.imageUpdate()
-
-        self.canvas.itemconfig(self.image_on_canvas, image=self.curimg)
+        while not self.canvas.setFile(self.currentImagePath):
+            self.filepaths.remove(self.currentImagePath)
         self.labelFileName()
-        self.update_idletasks()
-        loom.thread(target=lambda: self.loadPhotoImage(maxwidth, maxheight))
-
-    def loadPhotoImage(self, *args, **kwargs):
-        try:
-            self.makePhotoImage(
-                self.filepaths[(self.image_index - 1) % len(self.filepaths)],
-                *args,
-                **kwargs
-            )
-            self.makePhotoImage(
-                self.filepaths[(self.image_index + 1) % len(self.filepaths)],
-                *args,
-                **kwargs
-            )
-        except (MemoryError, tk.TclError, ZeroDivisionError):
-            print(self.photoImageCache)
-            print(hex(id(self.photoImageCache)))
-            print(len(self.photoImageCache))
-            self.photoImageCache.clear()
-            # for loc in locals():
-            #     print(loc, ":", locals().get(loc))
-            raise
-
-    def makePhotoImage(self, filename, maxwidth, maxheight, ALWAYS_RESIZE=True, stepsize=4):
-        """Make a resized photoimage given a filepath
-
-        Args:
-            filename (str): Path to an image file
-            maxwidth (TYPE): Maximum width of canvas
-            maxheight (TYPE): Maximum height of canvas
-
-        Returns:
-            ImageTk.PhotoImage
-        """
-        # pilimg = Image.open(filename)
-        pilimg = self.photoImageCache.get(filename)
-
-        if not pilimg:
-            (filename_, fileext) = os.path.splitext(filename)
-            canResize = True
-
-            try:
-                if fileext.lower() in _IMAGEEXTS:
-                    pilimg = Image.open(filename)
-                elif fileext.lower() in _VIDEOEXTS:
-                    capture = cv2.VideoCapture(filename)
-                    capture.grab()
-                    flag, frame = capture.retrieve()
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    pilimg = Image.fromarray(frame)
-                else:
-                    raise OSError("Exception reading image")
-            except OSError:
-                pilimg = Image.open("fallback.png")
-
-            imageIsTooBig = pilimg.width > maxwidth or pilimg.height > maxheight
-            if (imageIsTooBig and canResize) or ALWAYS_RESIZE:
-                ratio = min(maxwidth / pilimg.width, maxheight / pilimg.height)
-                method = Image.ANTIALIAS
-
-                if not imageIsTooBig:
-                    stepratio = floor(ratio * stepsize) / stepsize
-                    if stepratio != 0:
-                        ratio = stepratio
-                        method = Image.LINEAR
-                    # else:
-                    #     print("Warning: stepratio =", stepratio, "with ratio", ratio, "and stepsize", stepsize)
-                try:
-                    pilimg = pilimg.resize(
-                        (int(pilimg.width * ratio), int(pilimg.height * ratio)), method)
-                except OSError as e:
-                    print("OS error resizing file", filename)
-                    # loc = None
-                    # for loc in locals():
-                    #     print(loc, ":", locals().get(loc))
-                    try:
-                        return ImageTk.PhotoImage(pilimg)
-                    except SyntaxError as e2:
-                        print("Corrupt image")
-                        raise
-                    except (MemoryError, tk.TclError):
-                        print("Corrupt image, I think?")
-                        print(filename)
-                        messagebox.showwarning("Bad image", traceback.format_exc())
-                        self.filepaths.remove(filename)
-                        self.imageUpdate()
-
-            self.photoImageCache[filename] = pilimg
-            loom.thread(target=self.pruneImageCache, name="pruneImageCache")
-        return ImageTk.PhotoImage(pilimg)
-
-    def pruneImageCache(self, max_memory_entries=30):
-        while len(self.photoImageCache) > max_memory_entries:
-            self.photoImageCache.pop(list(self.photoImageCache.keys())[0])
-        assert len(self.photoImageCache) <= max_memory_entries
 
     # Disk action
 
@@ -891,8 +769,8 @@ class FileSorter(tk.Tk):
         if confirmed:
             self.filepaths.remove(fileToDelete)
             trash(fileToDelete, undos=self.undo)
-            self.photoImageCache.pop(fileToDelete)
-            self.imageUpdate()
+            self.canvas.markCacheDirty(fileToDelete)
+            self.imageUpdate("File deleted")
 
     def dorename(self, event):
         """Rename current file.
@@ -917,7 +795,7 @@ class FileSorter(tk.Tk):
 
             snip.filesystem.renameFileOnly(old_file_path, entry)
             # os.rename(old_file_path, newFileName)
-        except FileExistsError as e:
+        except FileExistsError:
             if self.frame_sidebar.confident.get():
                 print("Renaming conflicting file", e.filename2)
                 snip.filesystem.renameFileOnly(conflicting_file_path, entry + "_displaced")
@@ -931,10 +809,10 @@ class FileSorter(tk.Tk):
                     old_file_name
                 ))
 
-            self.photoImageCache.pop(old_file_path)
+            self.canvas.markCacheDirty(old_file_path)
 
             if self.frame_sidebar.auto_reload.get():
-                self.reloadImages()
+                self.resortImageList()
             # self.nextImage()
 
             # Clear field
@@ -970,7 +848,7 @@ class FileSorter(tk.Tk):
                         os.path.join(newdir, old_filename), old_file_path))))
             ])
 
-            self.photoImageCache.pop(old_file_path)
+            self.canvas.markDirty(old_file_path)
             # spool.enqueue(
             #     name="{} -> {}".format(old_file_path, newdir),
             #     target=filemove, args=(old_file_path, newdir,))
@@ -1013,9 +891,9 @@ class FileSorter(tk.Tk):
         op(self)
         # print("doneundo")
         if self.frame_sidebar.auto_reload.get():
-            self.reloadImages()
+            self.resortImageList()
         # print("imagereload done")
-        self.imageUpdate()
+        self.imageUpdate("Undo operation")
 
 
 def run_threaded():
