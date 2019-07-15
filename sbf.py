@@ -101,6 +101,9 @@ class SidebarFrame(tk.Frame):
         
         self.aggressive = tk.BooleanVar()
         settings_popup.add_checkbutton(label="Aggressive matching", variable=self.aggressive)
+        self.auto_reload = tk.BooleanVar()
+        self.auto_reload.set(True)
+        settings_popup.add_checkbutton(label="Reload on change", variable=self.auto_reload)
 
         settings_popup.add_separator()
         settings_popup.add_command(label="Add Unsorted to base", command=self.controller.addUnsortedToBase)

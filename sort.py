@@ -511,6 +511,7 @@ class FileSorter(tk.Tk):
     def reloadImages(self):
         """Reload filepaths, rescan for images.
         """
+        print("Reloading, sorting")
         self.filepaths = self.sorter(sum([glob(a) for a in self.imageglobs], []))
         self.imageUpdate()
 
@@ -695,6 +696,7 @@ class FileSorter(tk.Tk):
         # self.reloadDirContext()
         self.canvas.itemconfig(self.image_on_canvas, state="hidden")
         self.update_idletasks()
+        print("(Re)sorting")
         self.filepaths = self.sorter(self.filepaths)
         self.image_index = 0
         self.imageUpdate()
@@ -739,7 +741,8 @@ class FileSorter(tk.Tk):
         if self.image_index != prev_index:
             print("Wrapped, reloading...")
             print("W: {}/{}".format(self.image_index, len(self.filepaths)))
-            self.reloadImages()
+            if self.frame_sidebar.auto_reload.get():
+                self.reloadImages()
 
         print("F: {}/{}".format(self.image_index, len(self.filepaths)))
         filename = self.currentImagePath
@@ -888,6 +891,7 @@ class FileSorter(tk.Tk):
         if confirmed:
             self.filepaths.remove(fileToDelete)
             trash(fileToDelete, undos=self.undo)
+            self.photoImageCache.pop(fileToDelete)
             self.imageUpdate()
 
     def dorename(self, event):
@@ -927,7 +931,10 @@ class FileSorter(tk.Tk):
                     old_file_name
                 ))
 
-            self.reloadImages()
+            self.photoImageCache.pop(old_file_path)
+
+            if self.frame_sidebar.auto_reload.get():
+                self.reloadImages()
             # self.nextImage()
 
             # Clear field
@@ -942,7 +949,7 @@ class FileSorter(tk.Tk):
         """
         if event:
             new_folder_name = event.widget.get()
-        old_file_name = self.currentImagePath
+        old_file_path = self.currentImagePath
         if new_folder_name == "":
             self.nextImage()
             self.frame_sidebar.reFocusEntry()
@@ -952,38 +959,42 @@ class FileSorter(tk.Tk):
             if not os.path.isdir(newdir):
                 os.makedirs(newdir, exist_ok=True)
                 self.reloadDirContext()
-            # filemove(old_file_name, newdir)
+            # filemove(old_file_path, newdir)
 
-            old_folder, old_filename = os.path.split(old_file_name)
+            old_folder, old_filename = os.path.split(old_file_path)
 
             spool.enqueueSeries([
-                (lambda: snip.filesystem.moveFileToDir(old_file_name, newdir)),
+                (lambda: snip.filesystem.moveFileToDir(old_file_path, newdir)),
                 (lambda: self.undo.append(
-                    lambda self: (snip.moveFileToFile(
-                        os.path.join(newdir, old_filename), old_file_name))))
+                    lambda self: (snip.filesystem.moveFileToFile(
+                        os.path.join(newdir, old_filename), old_file_path))))
             ])
+
+            self.photoImageCache.pop(old_file_path)
             # spool.enqueue(
-            #     name="{} -> {}".format(old_file_name, newdir),
-            #     target=filemove, args=(old_file_name, newdir,))
-            # # doFileRename(old_file_name, newFileName,
+            #     name="{} -> {}".format(old_file_path, newdir),
+            #     target=filemove, args=(old_file_path, newdir,))
+            # # doFileRename(old_file_path, newFileName,
             # #              confident=self.frame_sidebar.confident.get())
             # spool.enqueue(
             #     name="Push move undo",
             #     target=self.undo.append,
             #     args=(lambda self: doFileRename(
-            #         os.path.join(newdir, os.path.split(old_file_name)[1]), old_file_name),
+            #         os.path.join(newdir, os.path.split(old_file_path)[1]), old_file_path),
             #     )
             # )
 
-            self.filepaths.remove(old_file_name)
+            self.filepaths.remove(old_file_path)
             self.image_index -= 1
             self.nextImage()
         except Exception:
             traceback.print_exc()
+            raise
 
         # Clear field
         if event:
             event.widget.delete(0, last=tk.END)
+
         # self.frame_sidebar.reFocusEntry()
 
     def doUndo(self, event):
@@ -1001,7 +1012,8 @@ class FileSorter(tk.Tk):
         op = self.undo.pop()
         op(self)
         # print("doneundo")
-        self.reloadImages()
+        if self.frame_sidebar.auto_reload.get():
+            self.reloadImages()
         # print("imagereload done")
         self.imageUpdate()
 
