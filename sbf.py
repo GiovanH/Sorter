@@ -144,7 +144,7 @@ class SidebarFrame(tk.Frame):
 
     def on_adjust_sort(self, event):
         self.controller.sorter = self.controller.sortkeys[event.widget.get()]
-        self.controller.reSort()
+        self.controller.resortImageList()
         # self.config(state=tk.NORMAL)
 
     def processEntryInput(self, event):

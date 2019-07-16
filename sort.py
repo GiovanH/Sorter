@@ -698,6 +698,9 @@ class FileSorter(tk.Tk):
         """
         self.image_index += 1
         self.imageUpdate("Next image")
+        self.canvas.preloadImage(
+            [self.filepaths[(self.image_index + 1) % len(self.filepaths)]]
+        )
 
     def prevImage(self, event=None):
         """Show the previous image
@@ -787,23 +790,18 @@ class FileSorter(tk.Tk):
 
         old_file_path = self.currentImagePath
 
-        try:
-            # if os.path.exists(newFileName):
-            #     raise FileExistsError()
-            # print("{} -> {}".format(old_file_path, newFileName))
-            (old_file_dir, old_file_name) = os.path.split(old_file_path)
-            conflicting_file_path = os.path.join(old_file_dir, entry + os.path.splitext(old_file_path)[1])
+        new_file_name = entry + os.path.splitext(old_file_path)[1]
 
-            snip.filesystem.renameFileOnly(old_file_path, entry)
-            # os.rename(old_file_path, newFileName)
-        except FileExistsError:
+        (old_file_dir, old_file_name) = os.path.split(old_file_path)
+        conflicting_file_path = os.path.join(old_file_dir, new_file_name)
+        if os.path.isfile(conflicting_file_path):
             if self.frame_sidebar.confident.get():
                 print("Renaming conflicting file", e.filename2)
                 snip.filesystem.renameFileOnly(conflicting_file_path, entry + "_displaced")
-                snip.filesystem.renameFileOnly(old_file_path, entry)
             else:
-                traceback.print_exc()
-        finally:
+                return
+        try:
+            snip.filesystem.renameFileOnly(old_file_path, entry)
             self.undo.append(
                 lambda s: snip.filesystem.renameFileOnly(
                     conflicting_file_path,
@@ -814,8 +812,10 @@ class FileSorter(tk.Tk):
 
             if self.frame_sidebar.auto_reload.get():
                 self.resortImageList()
-            # self.nextImage()
 
+        except FileExistsError:
+            traceback.print_exc()
+        finally:
             # Clear field
             event.widget.delete(0, last=tk.END)
         # self.frame_sidebar.reFocusEntry()
@@ -849,7 +849,7 @@ class FileSorter(tk.Tk):
                         os.path.join(newdir, old_filename), old_file_path))))
             ])
 
-            self.canvas.markDirty(old_file_path)
+            self.canvas.markCacheDirty(old_file_path)
             # spool.enqueue(
             #     name="{} -> {}".format(old_file_path, newdir),
             #     target=filemove, args=(old_file_path, newdir,))
