@@ -18,7 +18,7 @@ from tkinter import messagebox
 
 import os
 
-from glob import glob
+import glob
 from os.path import sep
 from send2trash import send2trash
 from tempfile import mkdtemp
@@ -29,17 +29,23 @@ import traceback
 import pymaybe
 
 import snip
+import random
 
 import sbf
-from contentcanvas import ContentCanvas
+from snip.tkit.contentcanvas import ContentCanvas
 
-IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif", "gifv", "jfif"]
-VIDEOEXTS = ["webm", "mp4"]
-_IMAGEEXTS = ["." + e for e in IMAGEEXTS]
-_VIDEOEXTS = ["." + e for e in VIDEOEXTS]
+
+IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif", "gifv", "jfif", "tga", "pdn", "psd"]
+VIDEOEXTS = ["webm", "mp4", "mov"]
+_IMAGEEXTS = ["*." + e for e in IMAGEEXTS]
+_VIDEOEXTS = ["*." + e for e in VIDEOEXTS]
 MATCHEXTS = IMAGEEXTS + VIDEOEXTS
+_MATCHEXTS = _IMAGEEXTS + _VIDEOEXTS
+
 
 COMPLETION_KEYS = [32, 8]
+
+MAX_TRASH_HISTORY = 32
 
 spool = loom.Spool(1, belay=True)
 
@@ -81,11 +87,11 @@ def imageSize(filename):
     try:
         w, h = Image.open(filename).size
         return w * h
-    except FileNotFoundError:
-        print("WARNING! File not found: ", filename)
-        return 0
     except OSError:
         print("WARNING! OS error with file: ", filename)
+        return 0
+    except FileNotFoundError:
+        print("WARNING! File not found: ", filename)
         return 0
 
 
@@ -113,11 +119,10 @@ def trash(fileToDelete, undos=None):
     """Args:
         fileToDelete (str): Path to trash
     """
-    max_trash_history = 18
 
     # Clean trash
-    if len(trashed_files) > max_trash_history:
-        surplus = trashed_files[:-max_trash_history]
+    if len(trashed_files) > MAX_TRASH_HISTORY:
+        surplus = trashed_files[:-MAX_TRASH_HISTORY]
         really_trash_files(surplus)
         for n in surplus:
             trashed_files.remove(n)
@@ -243,7 +248,7 @@ class FileSorter(tk.Tk):
         undo (list): Stack of functions to process via ctrl+z
     """
 
-    def __init__(self, rootpath, match_extensions, *args, **kwargs):
+    def __init__(self, rootpath, match_fileglobs, *args, **kwargs):
         """File sorter main window
 
         Passthrough to tk.Tk
@@ -258,7 +263,7 @@ class FileSorter(tk.Tk):
         self.str_context = tk.StringVar()
         self.undo = []
         self.filepaths = []
-        self.match_extensions = match_extensions
+        self.match_fileglobs = match_fileglobs
 
         self.sortkeys = {
             "{}, {}".format(name, order): (
@@ -271,9 +276,10 @@ class FileSorter(tk.Tk):
                 ("Last modified", os.path.getmtime,),
                 ("File type", lambda f: os.path.splitext(f)[1],),
                 ("Image Dimensions", imageSize,),
-                ("Image Height", lambda f: pymaybe.maybe(Image.open(f).size[1]).or_else(0),),
-                ("Image Width", lambda f: pymaybe.maybe(Image.open(f).size[0]).or_else(0),),
-                ("Procedural hash", fingerprintImage,)
+                ("Image Height", lambda f: pymaybe.maybe(Image.open(f)).size[1].or_else(0),),
+                ("Image Width", lambda f: pymaybe.maybe(Image.open(f)).size[0].or_else(0),),
+                ("Procedural hash", fingerprintImage,),
+                ("Random", lambda f: random.random())
             ]
             for (order, orderb) in [
                 ("asc", False,), ("desc", True,)
@@ -293,7 +299,7 @@ class FileSorter(tk.Tk):
 
         self.initwindow()
 
-        self.openDir(snip.filesystem.userProfile("Downloads"))
+        self.openDir(rootpath)
 
         self.mainloop()
 
@@ -341,7 +347,7 @@ class FileSorter(tk.Tk):
         # # Header stuff # #
         # current filename label
         self.str_curfile = tk.StringVar(value="No Images Found")
-        self.lab_curfile = tk.Label(textvariable=self.str_curfile, font=("Helvetica", 22))
+        self.lab_curfile = tk.Label(textvariable=self.str_curfile, font=("System", 16))
         self.lab_curfile.grid(row=0, column=1)
 
         # Canvas stuff
@@ -401,25 +407,23 @@ class FileSorter(tk.Tk):
         else:
             prettyname = filepath
             __, fileext = os.path.splitext(filepath)
-            if fileext.lower() in _IMAGEEXTS:
-                try:
-                    (w, h) = Image.open(filepath).size
-                    prettyname = "{} [{w}x{h}]".format(
-                        os.path.split(filepath)[1],
-                        **vars()
-                    )
-                except OSError:
-                    pass  # Fallback to filepath
-            prettyname += " [{}]".format(snip.string.bytes_to_string(os.path.getsize(filepath)))
+            print(fileext, _IMAGEEXTS)
+            try:
+                frames = snip.image.framesInImage(filepath)
+                filename = os.path.split(filepath)[1]
+                filesize = snip.strings.bytes_to_string(os.path.getsize(filepath))
+                w, h = Image.open(filepath).size
+                prettyname = f"{filename} [{frames}f]\n{filesize} [{w}x{h}px]"
+            except OSError:
+                traceback.print_exc()
+                pass  # Fallback to filepath
             self.str_curfile.set(prettyname)
 
     def promptLooseCleanup(self, rootpath, destpath):
         assert os.path.isdir(rootpath)
         assert os.path.isdir(destpath)
-        loose_files = [
-            f for f in glob(os.path.join(rootpath, "*.*"))
-            if os.path.splitext(f)[1].lower() in self.match_extensions
-        ]
+        imageglobs = [os.path.join(glob.escape(rootpath), ext) for ext in self.match_fileglobs]
+        loose_files = sum([glob.glob(a) for a in imageglobs], [])
         num_loose_files = len(loose_files)
         if num_loose_files == 0:
             return
@@ -478,11 +482,12 @@ class FileSorter(tk.Tk):
             trashed_files = []
             print("Opened new trash directory as", trashdir)
 
+        # Initialize images
+        self.image_index = 0
+
         # Initialize data
         self.reloadDirContext()
 
-        # Initialize images
-        self.image_index = 0
         # self.resortImageList() #  done in reloadDirContext
 
         self.frame_sidebar.progbar_prog.configure(maximum=len(self.filepaths))
@@ -490,7 +495,7 @@ class FileSorter(tk.Tk):
     def reloadDirContext(self):
         """Reload globs, keys, and context for our directory.
         """
-        context = sum([glob(a) for a in self.contextglobs], [])
+        context = sum([glob.glob(a) for a in self.contextglobs], [])
         self.folders_by_name = {baseFolderName(path.lower()): path for path in context}
         self.folder_names = list(self.folders_by_name.keys())  # Constant order
         self.keycache = {}
@@ -501,7 +506,7 @@ class FileSorter(tk.Tk):
         """Reload filepaths, rescan for images.
         """
         print("Resorting image list")
-        self.filepaths = self.sorter(sum([glob(a) for a in self.imageglobs], []))
+        self.filepaths = self.sorter(sum([glob.glob(a) for a in self.imageglobs], []))
         self.imageUpdate("Resorted image list")
 
     # Generators and logic
@@ -646,32 +651,28 @@ class FileSorter(tk.Tk):
         print("Generating paths for: {}".format(rootpath))
         # Pull loose images
         self.imageglobs = [
-            os.path.join(rootpath, "*" + ext) for ext in self.match_extensions]
+            os.path.join(glob.escape(rootpath), ext) for ext in self.match_fileglobs]
 
         print("Image Globs:", self.imageglobs)
 
         subdirectory_unsorted = os.path.join(rootpath, "unsorted")
 
-        if os.path.exists(subdirectory_unsorted):
-            # Put images in same-level directories
-            self.contextglobs = [
-                os.path.join(rootpath, "*" + sep),
-                os.path.join(rootpath, ".." + sep)
-            ]
-
-            # Pull images from unsorted too
-            self.imageglobs += [
-                os.path.join(subdirectory_unsorted, "*" + ext) for ext in self.match_extensions]
-
+        if not os.path.exists(subdirectory_unsorted):
+            # Put images in parent directories
+            rootpath = os.path.join(rootpath, "..")
+        else:
             self.promptLooseCleanup(rootpath, subdirectory_unsorted)
 
-        else:
-            # Put images in parent directories
-            self.contextglobs = [
-                os.path.join(rootpath, "..", "*" + sep),
-                os.path.join(rootpath, "..", ".." + sep)
-            ]
-            rootpath = os.path.join(rootpath, "..")
+        # Put images in same-level directories
+        self.contextglobs = [
+            os.path.join(glob.escape(rootpath), "*" + sep),
+            os.path.join(glob.escape(rootpath), ".." + sep)
+        ]
+
+        # Pull images from unsorted too
+        self.imageglobs += [
+            os.path.join(subdirectory_unsorted, ext) for ext in self.match_fileglobs]
+
         print("Context globs:", self.contextglobs)
         self.newFolderRoot = rootpath  # Where we make new folders
 
@@ -698,9 +699,6 @@ class FileSorter(tk.Tk):
         """
         self.image_index += 1
         self.imageUpdate("Next image")
-        self.canvas.preloadImage(
-            [self.filepaths[(self.image_index + 1) % len(self.filepaths)]]
-        )
 
     def prevImage(self, event=None):
         """Show the previous image
@@ -711,6 +709,15 @@ class FileSorter(tk.Tk):
         self.image_index -= 1
         self.imageUpdate("Prev image")
 
+    def gotoImage(self, index):
+        """Show the previous image
+
+        Args:
+            event (optional): tk triggering event
+        """
+        self.image_index = int(float(index))
+        self.imageUpdate("Seek")
+
     def imageUpdate(self, event=None):
         print(
             "Image Update: {}/{} (Cause: {})".format(
@@ -719,9 +726,6 @@ class FileSorter(tk.Tk):
                 event
             )
         )
-        self.frame_sidebar.progbar_seek.configure(maximum=len(self.filepaths))
-        self.frame_sidebar.var_progbar_seek.set(self.image_index + 1)
-        self.frame_sidebar.var_progbar_prog.set(len(self.filepaths))
 
         if len(self.filepaths) == 0:
             self.image_index = 0
@@ -740,7 +744,18 @@ class FileSorter(tk.Tk):
 
         while not self.canvas.setFile(self.currentImagePath):
             self.filepaths.remove(self.currentImagePath)
+            
         self.labelFileName()
+        self.frame_sidebar.var_progbar_seek.set(self.image_index)
+        self.frame_sidebar.progbar_seek.configure(to=len(self.filepaths) - 1)
+        self.frame_sidebar.var_progbar_prog.set(len(self.filepaths))
+
+        # Preloading
+        start = (self.image_index - 4) % len(self.filepaths)
+        end = (self.image_index + 6) % len(self.filepaths)
+        self.canvas.preloadImage(
+            self.filepaths[start:end]
+        )
 
     # Disk action
 
@@ -903,16 +918,17 @@ def run_threaded():
 
     try:
         ap = argparse.ArgumentParser()
-        ap.add_argument("-r", "--root",
-                        help="Root folder. Should contain folders, one of which can be named unsorted.")
+        ap.add_argument("-b", "--base",
+                        help="Root folder. Should contain folders, one of which can be named unsorted.",
+                        default=snip.filesystem.userProfile("Downloads"))
         ap.add_argument(
-            "-e", "--extensions", nargs='+', default=MATCHEXTS,
+            "-e", "--extensions", nargs='+', default=_MATCHEXTS,
             help="Substrings in the path to penalize during file sorting.")
         args = ap.parse_args()
 
         spool.start()
-        FileSorter(args.root, ["." + e for e in args.extensions])
-    except (Exception, KeyboardInterrupt) as e:
+        FileSorter(args.base, args.extensions)
+    except (Exception, KeyboardInterrupt):
         # Postmortem on uncaught exceptions
         traceback.print_exc()
 
