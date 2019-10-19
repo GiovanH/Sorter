@@ -118,7 +118,7 @@ class SidebarFrame(tk.Frame):
         self.combobox_sorter.grid(row=rowInOrder(), sticky="WE")
 
         self.var_progbar_seek = tk.IntVar()
-        self.progbar_seek = ttk.Progressbar(self, variable=self.var_progbar_seek)
+        self.progbar_seek = ttk.Scale(self, takefocus=False, variable=self.var_progbar_seek, command=self.on_adjust_seek)
         self.progbar_seek.grid(row=rowInOrder(), sticky="WE")
 
         self.var_progbar_prog = tk.IntVar()
@@ -141,6 +141,9 @@ class SidebarFrame(tk.Frame):
         for index in matches:
             self.listbox_context.selection_set(index)
             self.listbox_context.see(index)
+
+    def on_adjust_seek(self, event):
+        self.controller.gotoImage(event)
 
     def on_adjust_sort(self, event):
         self.controller.sorter = self.controller.sortkeys[event.widget.get()]
