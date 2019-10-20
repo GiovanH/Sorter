@@ -54,26 +54,6 @@ def baseFolderName(path):
     return os.path.basename(os.path.split(path)[0])
 
 
-def copy_to_clipboard(filepath):
-    from io import BytesIO
-    import win32clipboard
-    from PIL import Image
-
-    def send_to_clipboard(clip_type, data):
-        win32clipboard.OpenClipboard()
-        win32clipboard.EmptyClipboard()
-        win32clipboard.SetClipboardData(clip_type, data)
-        win32clipboard.CloseClipboard()
-
-    image = Image.open(filepath)
-
-    output = BytesIO()
-    image.convert("RGB").save(output, "BMP")
-    data = output.getvalue()[14:]
-    output.close()
-
-    send_to_clipboard(win32clipboard.CF_DIB, data)
-
 
 def imageSize(filename):
     """Get the number of pixels in an image
@@ -306,43 +286,29 @@ class FileSorter(tk.Tk):
     # Windowing and GUI
 
     def onResize(self, event):
-        wh = (self.canvas.winfo_width(), self.canvas.winfo_height())
-        if wh == self.lastwh:
-            # Window has not been resized, just moved.
-            return
-        else:
-            self.lastwh = wh
+        # wh = (self.canvas.winfo_width(), self.canvas.winfo_height())
+        # if wh == self.lastwh:
+        #     # Window has not been resized, just moved.
+        #     return
+        # else:
+        #     self.lastwh = wh
 
-        # Clear waiting callbacks
-        if self.onResizeCallback:
-            self.after_cancel(self.onResizeCallback)
+        # # Clear waiting callbacks
+        # if self.onResizeCallback:
+        #     self.after_cancel(self.onResizeCallback)
 
-        def orc():
-            self.canvas.markAllDirty()
-            print("Resized:", self.lastwh, "->", wh)
-            self.imageUpdate("Window resized")
-        self.onResizeCallback = self.after(25, orc)
-        # self.onResizeCallback = self.after_idle(orc)
+        # def orc():
+        #     self.canvas.markAllDirty()
+        #     print("Resized:", self.lastwh, "->", wh)
+        #     self.imageUpdate("Window resized")
+        # self.onResizeCallback = self.after(25, orc)
+        pass
 
     def initwindow(self):
         """Initialize widgets for the window
         """
 
         self.geometry("860x600")
-
-        self.bind("<Delete>", self.askDelete)
-        self.bind("<Right>", self.nextImage)
-        self.bind("<Left>", self.prevImage)
-
-        self.bind("<Configure>", self.onResize)
-
-        self.bind("<Control-w>", self.quicksave)
-        self.bind("<Control-d>", self.fastDelete)
-        self.bind("<Control-z>", self.doUndo)
-
-        # self.bind("<Up>", self.keepImage)
-        # self.bind("<Down>", self.fastDelete)
-        self.bind("<End>", self.doUndo)
 
         # # Header stuff # #
         # current filename label
@@ -356,31 +322,28 @@ class FileSorter(tk.Tk):
         self.columnconfigure(1, weight=1)
         self.rowconfigure(1, weight=1)
 
-        # create a menu
-        popup = tk.Menu(self, tearoff=0)
-        popup.add_command(label="Copy to clipboard", command=lambda: copy_to_clipboard(self.currentImagePath))  # , command=next) etc...
-        popup.add_command(label="Save a copy", command=self.save_a_copy)
-        popup.add_command(label="Save a copy (quick)", command=self.quicksave)
-        popup.add_separator()
-
-        def do_popup(event):
-            # display the popup menu
-            try:
-                popup.tk_popup(event.x_root, event.y_root, 0)
-            finally:
-                # make sure to release the grab (Tk 8.0a1 only)
-                popup.grab_release()
-
-        self.canvas.bind("<Button-3>", do_popup)
-
         # self.canvas.bind("<Button-1>", lambda event: self.canvas.focus_set())
+
+        self.bind("<Delete>", self.askDelete)
+        self.bind("<Right>", self.nextImage)
+        self.bind("<Left>", self.prevImage)
+
+        self.bind("<Configure>", self.onResize)
+
+        self.bind("<Control-w>", self.canvas.quicksave)
+        self.bind("<Control-d>", self.fastDelete)
+        self.bind("<Control-z>", self.doUndo)
+
+        # self.bind("<Up>", self.keepImage)
+        # self.bind("<Down>", self.fastDelete)
+        self.bind("<End>", self.doUndo)
 
         self.canvas.bind("<f>", self.nextImage)
         self.canvas.bind("<s>", self.prevImage)
 
         self.canvas.bind("<d>", self.fastDelete)
         self.canvas.bind("<e>", self.keepImage)
-        self.canvas.bind("<w>", self.quicksave)
+        self.canvas.bind("<w>", self.canvas.quicksave)
 
         self.canvas.bind("<a>", self.doUndo)
 
@@ -393,10 +356,6 @@ class FileSorter(tk.Tk):
 
         self.columnconfigure(0, minsize=160)
 
-    def quicksave(self, event=None):
-        downloads = snip.filesystem.userProfile("Downloads")
-        snip.filesystem.copyFileToDir(self.currentImagePath, downloads)
-        self.bell()
 
     def labelFileName(self):
         """Generate a user-friendly filename for the header
@@ -762,12 +721,6 @@ class FileSorter(tk.Tk):
     def keepImage(self, event=None):
         keepdir = os.path.join("keep", os.path.split(self.rootpath)[1])
         self.moveToFolder(new_folder_name=keepdir)
-
-    def save_a_copy(self):
-        newFileName = filedialog.asksaveasfilename(
-            initialfile=os.path.basename(self.currentImagePath)
-        )
-        snip.filesystem.copyFileToFile(self.currentImagePath, newFileName)
 
     def addUnsortedToBase(self):
         os.makedirs(os.path.join(self.rootpath, "Unsorted"))
