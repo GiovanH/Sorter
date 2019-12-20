@@ -54,7 +54,6 @@ def baseFolderName(path):
     return os.path.basename(os.path.split(path)[0])
 
 
-
 def imageSize(filename):
     """Get the number of pixels in an image
 
@@ -73,21 +72,6 @@ def imageSize(filename):
     except FileNotFoundError:
         print("WARNING! File not found: ", filename)
         return 0
-
-
-# def filemove(src, dst):
-#     """Move a file
-
-#     Args:
-#         src (str): Source path
-#         dst (str): Destination path
-#     """
-#     print("{} -> {}".format(src, dst))
-#     try:
-#         shutil.move(src, dst)
-#     except shutil.Error as e:
-#         print(e.errno, errno.EEXIST, e.errno == errno.EEXIST)
-#         traceback.print_exc()
 
 
 trashdir = mkdtemp(prefix="srt-")
@@ -115,11 +99,9 @@ def trash(fileToDelete, undos=None):
         snip.filesystem.moveFileToFile(trashed_file_path, fileToDelete)
         trashed_files.remove((trashed_file_path, fileToDelete,))
 
-    spool.enqueueSeries([
-        (lambda: snip.filesystem.moveFileToFile(fileToDelete, trashed_file_path)),
-        (lambda: trashed_files.append((trashed_file_path, fileToDelete,))),
-        (lambda: undos.append(untrash)),
-    ])
+    snip.filesystem.moveFileToFile(fileToDelete, trashed_file_path)
+    trashed_files.append((trashed_file_path, fileToDelete,))
+    undos.append(untrash)
 
 
 def really_trash_files(trashed_files):
@@ -195,13 +177,13 @@ def isVideo(filename):
 
 def fingerprintImage(image_path):
     import imagehash
-    if not isImage(image_path):
-        proc_hash = md5(image_path)
-    else:
+    try:
         image = Image.open(image_path)
         proc_hash = str(imagehash.dhash(image, hash_size=10))
         # Compress:
         # proc_hash = proc_hash.decode("hex").encode("base64")
+    except:
+        proc_hash = md5(image_path)
     return proc_hash
 
 
@@ -285,25 +267,6 @@ class FileSorter(tk.Tk):
 
     # Windowing and GUI
 
-    def onResize(self, event):
-        # wh = (self.canvas.winfo_width(), self.canvas.winfo_height())
-        # if wh == self.lastwh:
-        #     # Window has not been resized, just moved.
-        #     return
-        # else:
-        #     self.lastwh = wh
-
-        # # Clear waiting callbacks
-        # if self.onResizeCallback:
-        #     self.after_cancel(self.onResizeCallback)
-
-        # def orc():
-        #     self.canvas.markAllDirty()
-        #     print("Resized:", self.lastwh, "->", wh)
-        #     self.imageUpdate("Window resized")
-        # self.onResizeCallback = self.after(25, orc)
-        pass
-
     def initwindow(self):
         """Initialize widgets for the window
         """
@@ -313,7 +276,7 @@ class FileSorter(tk.Tk):
         # # Header stuff # #
         # current filename label
         self.str_curfile = tk.StringVar(value="No Images Found")
-        self.lab_curfile = tk.Label(textvariable=self.str_curfile, font=("System", 16))
+        self.lab_curfile = tk.Label(textvariable=self.str_curfile, height=2)
         self.lab_curfile.grid(row=0, column=1)
 
         # Canvas stuff
@@ -328,7 +291,7 @@ class FileSorter(tk.Tk):
         self.bind("<Right>", self.nextImage)
         self.bind("<Left>", self.prevImage)
 
-        self.bind("<Configure>", self.onResize)
+        # self.bind("<Configure>", self.onResize)
 
         self.bind("<Control-w>", self.canvas.quicksave)
         self.bind("<Control-d>", self.fastDelete)
@@ -356,33 +319,34 @@ class FileSorter(tk.Tk):
 
         self.columnconfigure(0, minsize=160)
 
-
     def labelFileName(self):
         """Generate a user-friendly filename for the header
         """
-        filepath = self.currentImagePath
-        if filepath is None:
-            self.str_curfile.set("No images.")
-        else:
-            prettyname = filepath
-            __, fileext = os.path.splitext(filepath)
-            print(fileext, _IMAGEEXTS)
+        if self.currentImagePath is None:
+            self.str_curfile.set("No image.")
+            return
+
+        prettyname = self.currentImagePath
+        __, fileext = os.path.splitext(self.currentImagePath)
+        try:
+            filename = os.path.split(self.currentImagePath)[1]
+            filesize = snip.strings.bytes_to_string(os.path.getsize(self.currentImagePath))
             try:
-                frames = snip.image.framesInImage(filepath)
-                filename = os.path.split(filepath)[1]
-                filesize = snip.strings.bytes_to_string(os.path.getsize(filepath))
-                w, h = Image.open(filepath).size
+                frames = snip.image.framesInImage(self.currentImagePath)
+                w, h = Image.open(self.currentImagePath).size
                 prettyname = f"{filename} [{frames}f]\n{filesize} [{w}x{h}px]"
             except OSError:
-                traceback.print_exc()
-                pass  # Fallback to filepath
-            self.str_curfile.set(prettyname)
+                prettyname = f"{filename}\n{filesize}"
+        except OSError:
+            traceback.print_exc()
+            pass
+        self.str_curfile.set(prettyname)
 
     def promptLooseCleanup(self, rootpath, destpath):
         assert os.path.isdir(rootpath)
         assert os.path.isdir(destpath)
         imageglobs = [os.path.join(glob.escape(rootpath), ext) for ext in self.match_fileglobs]
-        loose_files = sum([glob.glob(a) for a in imageglobs], [])
+        loose_files = list(filter(os.path.isfile, sum([glob.glob(a) for a in imageglobs], [])))
         num_loose_files = len(loose_files)
         if num_loose_files == 0:
             return
@@ -392,7 +356,10 @@ class FileSorter(tk.Tk):
         )
         if can_do_cleanup:
             for oldfile in loose_files:
-                snip.filesystem.moveFileToDir(oldfile, destpath)
+                try:
+                    snip.filesystem.moveFileToDir(oldfile, destpath)
+                except FileExistsError:
+                    pass
 
     def populateContextKeyFrame(self):
         """Generate and refresh the sidebar listbox
@@ -465,7 +432,7 @@ class FileSorter(tk.Tk):
         """Reload filepaths, rescan for images.
         """
         print("Resorting image list")
-        self.filepaths = self.sorter(sum([glob.glob(a) for a in self.imageglobs], []))
+        self.filepaths = self.sorter(filter(os.path.isfile, sum([glob.glob(a) for a in self.imageglobs], [])))
         self.imageUpdate("Resorted image list")
 
     # Generators and logic
@@ -502,28 +469,15 @@ class FileSorter(tk.Tk):
         if os.path.exists(usubdir):
             destination_dir = usubdir
 
-        # (old_dir, file_name) = os.path.split(old_file_path)
-        # spool.enqueueSeries([
-        #     (lambda: snip.moveFileToDir(old_file_path, destination_dir)),
-        #     (lambda: self.undo.append(
-        #         lambda self: snip.moveFileToFile(os.path.join(destination_dir, file_name), old_file_path))),
-        # ])
+        def doMove():
+            (old_file_dir, old_file_name) = os.path.split(old_file_path)
+            new_file_path = os.path.join(destination_dir, old_file_name)
+            snip.filesystem.moveFileToFile(old_file_path, destination_dir)
+            self.undo.append(lambda self: snip.filesystem.moveFileToFile(new_file_path, old_file_path))
 
-        (old_file_dir, old_file_name) = os.path.split(old_file_path)
-        new_file_path = os.path.join(destination_dir, old_file_name)
+        spool.enqueue(doMove)
 
-        spool.enqueueSeries([
-            (lambda: snip.filesystem.moveFileToFile(old_file_path, new_file_path)),
-            (lambda: self.undo.append(
-                lambda self: (
-                    snip.filesystem.moveFileToFile(new_file_path, old_file_path),
-                ))),
-        ])
-
-        # filemove(old_file_name, dst)
         self.filepaths.remove(old_file_path)
-        # self.undo.append(lambda self: filemove(
-        #     os.path.join(dst, file), old_file_name))
 
         # Clear field
         self.frame_sidebar.reFocusEntry()
@@ -635,21 +589,6 @@ class FileSorter(tk.Tk):
         print("Context globs:", self.contextglobs)
         self.newFolderRoot = rootpath  # Where we make new folders
 
-    # def backspace(self, event):
-    #     if event.widget.get() == "":
-    #         self.prevImage()
-
-    # Backend updates
-
-    # def reSort(self):
-    #     # self.reloadDirContext()
-    #     self.canvas.clear()
-    #     self.update_idletasks()
-    #     print("(Re)sorting")
-    #     self.filepaths = self.sorter(self.filepaths)
-    #     self.image_index = 0
-    #     self.imageUpdate()
-
     def nextImage(self, event=None):
         """Show the next image
 
@@ -720,7 +659,7 @@ class FileSorter(tk.Tk):
 
     def keepImage(self, event=None):
         keepdir = os.path.join("keep", os.path.split(self.rootpath)[1])
-        self.moveToFolder(new_folder_name=keepdir)
+        spool.enqueue(self.moveToFolder, (), dict(new_folder_name=keepdir))
 
     def addUnsortedToBase(self):
         os.makedirs(os.path.join(self.rootpath, "Unsorted"))
@@ -740,7 +679,7 @@ class FileSorter(tk.Tk):
             "Confirm", "{}\nAre you sure you want to delete this file?\n(The file will be trashed, and semi-recoverable.)".format(fileToDelete))
         if confirmed:
             self.filepaths.remove(fileToDelete)
-            trash(fileToDelete, undos=self.undo)
+            spool.enqueue(trash, (fileToDelete,), dict(undos=self.undo))
             self.canvas.markCacheDirty(fileToDelete)
             self.imageUpdate("File deleted")
 
@@ -764,7 +703,7 @@ class FileSorter(tk.Tk):
         conflicting_file_path = os.path.join(old_file_dir, new_file_name)
         if os.path.isfile(conflicting_file_path):
             if self.frame_sidebar.confident.get():
-                print("Renaming conflicting file", e.filename2)
+                print("Renaming conflicting file", conflicting_file_path)
                 snip.filesystem.renameFileOnly(conflicting_file_path, entry + "_displaced")
             else:
                 return
@@ -809,27 +748,13 @@ class FileSorter(tk.Tk):
             # filemove(old_file_path, newdir)
 
             old_folder, old_filename = os.path.split(old_file_path)
-
-            spool.enqueueSeries([
-                (lambda: snip.filesystem.moveFileToDir(old_file_path, newdir)),
-                (lambda: self.undo.append(
-                    lambda self: (snip.filesystem.moveFileToFile(
-                        os.path.join(newdir, old_filename), old_file_path))))
-            ])
+            snip.filesystem.moveFileToDir(old_file_path, newdir)
+            self.undo.append(
+                lambda self: snip.filesystem.moveFileToFile(
+                    os.path.join(newdir, old_filename), old_file_path)
+            )
 
             self.canvas.markCacheDirty(old_file_path)
-            # spool.enqueue(
-            #     name="{} -> {}".format(old_file_path, newdir),
-            #     target=filemove, args=(old_file_path, newdir,))
-            # # doFileRename(old_file_path, newFileName,
-            # #              confident=self.frame_sidebar.confident.get())
-            # spool.enqueue(
-            #     name="Push move undo",
-            #     target=self.undo.append,
-            #     args=(lambda self: doFileRename(
-            #         os.path.join(newdir, os.path.split(old_file_path)[1]), old_file_path),
-            #     )
-            # )
 
             self.filepaths.remove(old_file_path)
             self.image_index -= 1
@@ -858,10 +783,8 @@ class FileSorter(tk.Tk):
 
         op = self.undo.pop()
         op(self)
-        # print("doneundo")
         if self.frame_sidebar.auto_reload.get():
             self.resortImageList()
-        # print("imagereload done")
         self.imageUpdate("Undo operation")
 
 
