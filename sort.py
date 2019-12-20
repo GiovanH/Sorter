@@ -282,7 +282,7 @@ class FileSorter(tk.Tk):
         assert os.path.isdir(rootpath)
         assert os.path.isdir(destpath)
         imageglobs = [os.path.join(glob.escape(rootpath), ext) for ext in self.match_fileglobs]
-        loose_files = list(filter(os.path.isfile, sum([glob.glob(a) for a in imageglobs], [])))
+        loose_files = list(filter(TRASH.isfile, sum([glob.glob(a) for a in imageglobs], [])))
         num_loose_files = len(loose_files)
         if num_loose_files == 0:
             return
@@ -360,7 +360,7 @@ class FileSorter(tk.Tk):
         """Reload filepaths, rescan for images.
         """
         print("Resorting image list")
-        self.filepaths = self.sorter(filter(os.path.isfile, sum([glob.glob(a) for a in self.imageglobs], [])))
+        self.filepaths = self.sorter(filter(TRASH.isfile, sum([glob.glob(a) for a in self.imageglobs], [])))
         self.imageUpdate("Resorted image list")
 
     # Generators and logic
