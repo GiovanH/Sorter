@@ -20,8 +20,6 @@ import os
 
 import glob
 from os.path import sep
-from send2trash import send2trash
-from tempfile import mkdtemp
 
 import argparse
 import traceback
@@ -72,62 +70,6 @@ def imageSize(filename):
     except FileNotFoundError:
         print("WARNING! File not found: ", filename)
         return 0
-
-
-trashdir = mkdtemp(prefix="srt-")
-trashed_files = []
-print("Opened trash directory as", trashdir)
-
-
-def trash(fileToDelete, undos=None):
-    """Args:
-        fileToDelete (str): Path to trash
-    """
-
-    # Clean trash
-    if len(trashed_files) > MAX_TRASH_HISTORY:
-        surplus = trashed_files[:-MAX_TRASH_HISTORY]
-        really_trash_files(surplus)
-        for n in surplus:
-            trashed_files.remove(n)
-
-    (folder, file) = os.path.split(fileToDelete)
-    trashed_file_path = os.path.join(trashdir, file)
-
-    def untrash(self):
-        print("untrashing {}".format(file))
-        snip.filesystem.moveFileToFile(trashed_file_path, fileToDelete)
-        trashed_files.remove((trashed_file_path, fileToDelete,))
-
-    snip.filesystem.moveFileToFile(fileToDelete, trashed_file_path)
-    trashed_files.append((trashed_file_path, fileToDelete,))
-    undos.append(untrash)
-
-
-def really_trash_files(trashed_files):
-    spool.flush()
-    for (trashed_file_path, original_path) in trashed_files:
-        spool.enqueue(target=really_trash_file, args=(trashed_file_path, original_path,))
-        # spool.enqueue(target=send2trash, args=(trashed_file_path,))
-
-
-def really_trash_file(trashed_file_path, original_path):
-    try:
-        snip.filesystem.moveFileToFile(trashed_file_path, original_path)
-        path_to_trash = original_path
-    except Exception:
-        print(vars())
-        print("Can't un-temp file ", trashed_file_path)
-        path_to_trash = trashed_file_path
-        # raise
-    try:
-        send2trash(path_to_trash)
-        print("{} -> [trash]".format(path_to_trash))
-    except Exception:
-        print("{} -x> [trash]".format(path_to_trash))
-        print(vars())
-        print("Can't trash un-temp'd file. Putting it back. ")
-        snip.filesystem.moveFileToFile(path_to_trash, trashed_file_path)
 
 
 def md5(path):
@@ -247,12 +189,6 @@ class FileSorter(tk.Tk):
                 ("asc", False,), ("desc", True,)
             ]
         }
-
-        # ool = list("abcdefghijkzmnozqrzstzwzya")
-
-        # for key in self.sortkeys.keys():
-        #     print(key)
-        #     print(self.sortkeys[key](ool))
 
         self.sorter = sorted
 
@@ -399,14 +335,6 @@ class FileSorter(tk.Tk):
         self.generatePaths(newdir)
 
         self.undo.clear()
-
-        # Double check recycle bin
-        global trashdir
-        if not os.path.isdir(trashdir):
-            global trashed_files
-            trashdir = mkdtemp(prefix="srt-")
-            trashed_files = []
-            print("Opened new trash directory as", trashdir)
 
         # Initialize images
         self.image_index = 0
@@ -637,8 +565,6 @@ class FileSorter(tk.Tk):
         if self.image_index != prev_index:
             print("Wrapped, reloading...")
             print("W: {}/{}".format(self.image_index, len(self.filepaths) - 1))
-            # if self.frame_sidebar.auto_reload.get():
-            #     self.resortImageList()
 
         while not self.canvas.setFile(self.currentImagePath):
             self.filepaths.remove(self.currentImagePath)
@@ -679,7 +605,11 @@ class FileSorter(tk.Tk):
             "Confirm", "{}\nAre you sure you want to delete this file?\n(The file will be trashed, and semi-recoverable.)".format(fileToDelete))
         if confirmed:
             self.filepaths.remove(fileToDelete)
-            spool.enqueue(trash, (fileToDelete,), dict(undos=self.undo))
+
+            TRASH.delete(fileToDelete)
+            self.undo.append(lambda a: TRASH.undo())
+
+            # spool.enqueue(trash, (fileToDelete,), dict(undos=self.undo))
             self.canvas.markCacheDirty(fileToDelete)
             self.imageUpdate("File deleted")
 
@@ -775,7 +705,6 @@ class FileSorter(tk.Tk):
         Args:
             event: Tk triggering event
         """
-        # print("doundo")
         if len(self.undo) == 0:
             return
 
@@ -803,17 +732,15 @@ def run_threaded():
         args = ap.parse_args()
 
         spool.start()
-        FileSorter(args.base, args.extensions)
+        global TRASH
+        with snip.filesystem.Trash(verbose=True) as TRASH:
+            FileSorter(args.base, args.extensions)
     except (Exception, KeyboardInterrupt):
         # Postmortem on uncaught exceptions
         traceback.print_exc()
 
     # Cleanup
-    really_trash_files(trashed_files)
-    # glob(os.path.join(trashdir, "*"), recursive=True):
     spool.finish()  # We must wait for previous jobs to finish
-
-    # loom.threadWait(1, 1)
 
 
 if __name__ == "__main__":
