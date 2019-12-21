@@ -93,17 +93,8 @@ class SidebarFrame(tk.Frame):
 
         settings_popup = tk.Menu(self, tearoff=0)
 
-        self.fuzzy = tk.BooleanVar()
-        settings_popup.add_checkbutton(label="Fuzzy search", variable=self.fuzzy)
-        
-        self.confident = tk.BooleanVar()
-        settings_popup.add_checkbutton(label="Displace conflict targets", variable=self.confident)
-        
-        self.aggressive = tk.BooleanVar()
-        settings_popup.add_checkbutton(label="Aggressive matching", variable=self.aggressive)
-        self.auto_reload = tk.BooleanVar()
-        self.auto_reload.set(True)
-        settings_popup.add_checkbutton(label="Reload on change", variable=self.auto_reload)
+        for key, (var, label) in self.controller.settings.items():
+            settings_popup.add_checkbutton(label=label, variable=var)
 
         settings_popup.add_separator()
         settings_popup.add_command(label="Add Unsorted to base", command=self.controller.addUnsortedToBase)
@@ -176,7 +167,7 @@ class SidebarFrame(tk.Frame):
             (bestfldrshort, bestfldrpath) = bestFolders[0]
             self.controller.str_curfile.set(bestfldrshort)
             event.widget.configure(bg=GOOD)
-            if self.aggressive.get():
+            if self.controller.settings["aggressive"][0].get():
                 self.submit(entry=fieldGet)
         else:
             # self.controller.labelFileName()

@@ -169,6 +169,15 @@ class FileSorter(tk.Tk):
         self.filepaths = []
         self.match_fileglobs = match_fileglobs
 
+        self.settings = {
+            "fuzzy": (tk.BooleanVar(), "Fuzzy search"),
+            "parent_dirs": (tk.BooleanVar(), "Use parent directories"),
+            "confident": (tk.BooleanVar(), "Displace rename conflicts"),
+            "aggressive": (tk.BooleanVar(), "Automatically process on unambigious input"),
+            "auto_reload": (tk.BooleanVar(), "Reload on change")
+        }
+        self.settings["parent_dirs"][0].trace("w", lambda *a: self.reloadDirContext())
+
         self.sortkeys = {
             "{}, {}".format(name, order): (
                 lambda items, keyfunc=keyfunc, orderb=orderb: sorted(items, key=keyfunc, reverse=orderb)
@@ -332,7 +341,7 @@ class FileSorter(tk.Tk):
                 # No shared base
                 pass
         self.rootpath = newdir
-        self.generatePaths(newdir)
+        # self.generatePaths(newdir)
 
         self.undo.clear()
 
@@ -349,6 +358,8 @@ class FileSorter(tk.Tk):
     def reloadDirContext(self):
         """Reload globs, keys, and context for our directory.
         """
+        self.generatePaths(self.rootpath)
+
         context = sum([glob.glob(a) for a in self.contextglobs], [])
         self.folders_by_name = {baseFolderName(path.lower()): path for path in context}
         self.folder_names = list(self.folders_by_name.keys())  # Constant order
@@ -411,7 +422,7 @@ class FileSorter(tk.Tk):
         self.frame_sidebar.reFocusEntry()
 
         # If auto, pause to prevent error
-        if self.frame_sidebar.aggressive.get():
+        if self.settings["aggressive"][0].get():
             widget.bell()
             widget.config(state='disabled')
             widget.after(600, lambda: (widget.config(
@@ -450,7 +461,7 @@ class FileSorter(tk.Tk):
         """
         entry = entry.lower()
 
-        fuzzy = self.frame_sidebar.fuzzy.get()
+        fuzzy = self.settings["fuzzy"][0].get()
 
         if self.keycache.get(entry) is not None:
             cachedIndex = self.keycache.get(entry)
@@ -494,28 +505,37 @@ class FileSorter(tk.Tk):
         self.imageglobs = [
             os.path.join(glob.escape(rootpath), ext) for ext in self.match_fileglobs]
 
-        print("Image Globs:", self.imageglobs)
+        # print("Image Globs:", self.imageglobs)
 
         subdirectory_unsorted = os.path.join(rootpath, "unsorted")
 
-        if not os.path.exists(subdirectory_unsorted):
-            # Put images in parent directories
-            rootpath = os.path.join(rootpath, "..")
-        else:
+        parentpath = os.path.join(rootpath, "..")
+        
+        if os.path.exists(subdirectory_unsorted):
             self.promptLooseCleanup(rootpath, subdirectory_unsorted)
 
         # Put images in same-level directories
-        self.contextglobs = [
-            os.path.join(glob.escape(rootpath), "*" + sep),
-            os.path.join(glob.escape(rootpath), ".." + sep)
-        ]
+
+        if self.settings["parent_dirs"][0].get():
+            self.contextglobs = [
+                os.path.join(glob.escape(parentpath), "*", ""),
+                os.path.join(glob.escape(parentpath), "..", "")
+            ]
+        else:
+            self.contextglobs = [
+                os.path.join(glob.escape(rootpath), "*", ""),
+                os.path.join(glob.escape(rootpath), "..", "")
+            ]
 
         # Pull images from unsorted too
         self.imageglobs += [
             os.path.join(subdirectory_unsorted, ext) for ext in self.match_fileglobs]
 
         print("Context globs:", self.contextglobs)
-        self.newFolderRoot = rootpath  # Where we make new folders
+        if os.path.exists(subdirectory_unsorted):
+            self.newFolderRoot = rootpath  # Where we make new folders
+        else:
+            self.newFolderRoot = parentpath  # Where we make new folders
 
     def nextImage(self, event=None):
         """Show the next image
@@ -632,7 +652,7 @@ class FileSorter(tk.Tk):
         (old_file_dir, old_file_name) = os.path.split(old_file_path)
         conflicting_file_path = os.path.join(old_file_dir, new_file_name)
         if os.path.isfile(conflicting_file_path):
-            if self.frame_sidebar.confident.get():
+            if self.settings["confident"][0].get():
                 print("Renaming conflicting file", conflicting_file_path)
                 snip.filesystem.renameFileOnly(conflicting_file_path, entry + "_displaced")
             else:
@@ -647,7 +667,7 @@ class FileSorter(tk.Tk):
 
             self.canvas.markCacheDirty(old_file_path)
 
-            if self.frame_sidebar.auto_reload.get():
+            if self.settings["auto_reload"][0].get():
                 self.resortImageList()
 
         except FileExistsError:
@@ -712,7 +732,7 @@ class FileSorter(tk.Tk):
 
         op = self.undo.pop()
         op(self)
-        if self.frame_sidebar.auto_reload.get():
+        if self.settings["auto_reload"][0].get():
             self.resortImageList()
         self.imageUpdate("Undo operation")
 
