@@ -596,10 +596,16 @@ class FileSorter(tk.Tk):
 
         # Preloading
         start = (self.image_index - 4) % len(self.filepaths)
-        end = (self.image_index + 6) % len(self.filepaths)
-        self.canvas.preloadImage(
-            self.filepaths[start:end]
-        )
+        end = (self.image_index + 8) % len(self.filepaths)
+        # Wraparound
+        if start > end:
+            # print(start, ":", len(self.filepaths))
+            self.canvas.preloadImage(self.filepaths[start:len(self.filepaths)])
+            # print(0, ":", end)
+            self.canvas.preloadImage(self.filepaths[0:end])
+        else:
+            # print(start, ":", end)
+            self.canvas.preloadImage(self.filepaths[start:end])
 
     # Disk action
 
