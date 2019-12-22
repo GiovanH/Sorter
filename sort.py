@@ -516,23 +516,26 @@ class FileSorter(tk.Tk):
 
         # Put images in same-level directories
 
-        if self.settings["parent_dirs"][0].get():
-            self.contextglobs = [
-                os.path.join(glob.escape(parentpath), "*", ""),
-                os.path.join(glob.escape(parentpath), "..", "")
-            ]
+        has_sub_dirs = glob.glob(os.path.join(rootpath, "*", ""))
+
+        self.contextglobs = [
+            os.path.join(glob.escape(rootpath), "*", "")
+        ]
+
+        if has_sub_dirs:
+            self.contextglobs.append(os.path.join(glob.escape(rootpath), "..", ""))
         else:
-            self.contextglobs = [
-                os.path.join(glob.escape(rootpath), "*", ""),
-                os.path.join(glob.escape(rootpath), "..", "")
-            ]
+            self.contextglobs.append(os.path.join(glob.escape(parentpath), "..", ""))
+
+        if self.settings["parent_dirs"][0].get() or not has_sub_dirs:
+            self.contextglobs.append(os.path.join(glob.escape(parentpath), "*", ""))
 
         # Pull images from unsorted too
         self.imageglobs += [
             os.path.join(subdirectory_unsorted, ext) for ext in self.match_fileglobs]
 
         print("Context globs:", self.contextglobs)
-        if os.path.exists(subdirectory_unsorted):
+        if has_sub_dirs:
             self.newFolderRoot = rootpath  # Where we make new folders
         else:
             self.newFolderRoot = parentpath  # Where we make new folders
