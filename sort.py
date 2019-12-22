@@ -412,7 +412,7 @@ class FileSorter(tk.Tk):
             (old_file_dir, old_file_name) = os.path.split(old_file_path)
             new_file_path = os.path.join(destination_dir, old_file_name)
             snip.filesystem.moveFileToFile(old_file_path, destination_dir)
-            self.undo.append(lambda self: snip.filesystem.moveFileToFile(new_file_path, old_file_path))
+            self.undo.append(lambda self: (snip.filesystem.moveFileToFile(new_file_path, old_file_path), self.filepaths.append(old_file_path)))
 
         spool.enqueue(doMove)
 
@@ -633,7 +633,13 @@ class FileSorter(tk.Tk):
             self.filepaths.remove(fileToDelete)
 
             TRASH.delete(fileToDelete)
-            self.undo.append(lambda a: TRASH.undo())
+
+            def _undo(self):
+                TRASH.undo()
+                self.canvas.markCacheDirty(fileToDelete)
+                self.filepaths.append(fileToDelete)
+                self.prevImage()
+            self.undo.append(_undo)
 
             # spool.enqueue(trash, (fileToDelete,), dict(undos=self.undo))
             self.canvas.markCacheDirty(fileToDelete)
