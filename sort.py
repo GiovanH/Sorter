@@ -45,7 +45,7 @@ COMPLETION_KEYS = [32, 8]
 
 MAX_TRASH_HISTORY = 32
 
-spool = loom.Spool(1, belay=True)
+spool = loom.Spool(1, "Sort misc", belay=True)
 
 
 def baseFolderName(path):
@@ -174,7 +174,7 @@ class FileSorter(tk.Tk):
             "parent_dirs": (tk.BooleanVar(), "Use parent directories"),
             "confident": (tk.BooleanVar(), "Displace rename conflicts"),
             "aggressive": (tk.BooleanVar(), "Automatically process on unambigious input"),
-            "auto_reload": (tk.BooleanVar(), "Reload on change")
+            "auto_reload": (tk.BooleanVar(value=True), "Reload on change")
         }
         self.settings["parent_dirs"][0].trace("w", lambda *a: self.reloadDirContext())
 
@@ -565,13 +565,13 @@ class FileSorter(tk.Tk):
         self.imageUpdate("Seek")
 
     def imageUpdate(self, event=None):
-        print(
-            "Image Update: {}/{} (Cause: {})".format(
-                self.image_index, 
-                len(self.filepaths), 
-                event
-            )
-        )
+        # print(
+        #     "Image Update: {}/{} (Cause: {})".format(
+        #         self.image_index, 
+        #         len(self.filepaths), 
+        #         event
+        #     )
+        # )
 
         if len(self.filepaths) == 0:
             self.image_index = 0
@@ -582,9 +582,9 @@ class FileSorter(tk.Tk):
         # Wraparound image indicies
         prev_index = self.image_index
         self.image_index = self.image_index % len(self.filepaths)
-        if self.image_index != prev_index:
-            print("Wrapped, reloading...")
-            print("W: {}/{}".format(self.image_index, len(self.filepaths) - 1))
+        # if self.image_index != prev_index:
+        #     print("Wrapped, reloading...")
+        #     print("W: {}/{}".format(self.image_index, len(self.filepaths) - 1))
 
         while not self.canvas.setFile(self.currentImagePath):
             self.filepaths.remove(self.currentImagePath)
