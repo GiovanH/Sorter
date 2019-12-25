@@ -408,6 +408,11 @@ class FileSorter(tk.Tk):
         if os.path.exists(usubdir):
             destination_dir = usubdir
 
+        if not os.path.isdir(destination_dir):
+            print("In an invalid state:", destination_dir, "is not a directory")
+            self.reloadDirContext()
+            return
+
         def doMove():
             (old_file_dir, old_file_name) = os.path.split(old_file_path)
             new_file_path = os.path.join(destination_dir, old_file_name)
