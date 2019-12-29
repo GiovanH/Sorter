@@ -318,6 +318,19 @@ class FileSorter(tk.Tk):
 
     # Context and context manipulation
 
+    def changeMatchGlobs(self, newmatchglobs=None):
+        print(self.match_fileglobs)
+        if not newmatchglobs:
+            from tkinter.simpledialog import askstring
+            newmatchglobs = askstring("Filter", "Enter new globs seperated by ', '", initialvalue=", ".join(self.match_fileglobs))
+
+        print(newmatchglobs)
+
+        self.match_fileglobs = newmatchglobs.split(", ")
+        self.reloadDirContext()
+        self.imageUpdate()
+
+
     @property
     def currentImagePath(self):
         if len(self.filepaths) == 0:
@@ -778,9 +791,10 @@ def run_threaded():
     except (Exception, KeyboardInterrupt):
         # Postmortem on uncaught exceptions
         traceback.print_exc()
-
-    # Cleanup
-    spool.finish()  # We must wait for previous jobs to finish
+    finally:
+        # Cleanup
+        spool.finish()  # We must wait for previous jobs to finish
+        os.abort()
 
 
 if __name__ == "__main__":

@@ -37,12 +37,15 @@ class SidebarFrame(tk.Frame):
             inOrderRow += 1
             return inOrderRow
 
-        btn_ref = ttk.Button(self, text="Open", takefocus=False, command=self.controller.openDir)
-        btn_ref.grid(row=rowInOrder(), sticky=tk.W)
+        btn_open = ttk.Button(self, text="Open", takefocus=False, command=self.controller.openDir)
+        btn_open.grid(row=rowInOrder(), sticky=tk.W)
+        btn_filter = ttk.Button(self, text="Filter", takefocus=False, command=self.controller.changeMatchGlobs)
+        btn_filter.grid(row=inOrderRow, sticky=tk.E)
+
         btn_ref = ttk.Button(self, text="Refresh", takefocus=False, command=(
             lambda: (self.controller.reloadDirContext(), self.controller.imageUpdate()))
         )
-        btn_ref.grid(row=inOrderRow, sticky=tk.E)
+        btn_ref.grid(row=rowInOrder(), sticky="WE")
 
         btn_back = ttk.Button(self, text="Prev", takefocus=False, command=self.controller.prevImage)
         btn_back.grid(row=rowInOrder(), sticky=tk.W)
@@ -167,7 +170,7 @@ class SidebarFrame(tk.Frame):
             (bestfldrshort, bestfldrpath) = bestFolders[0]
             self.controller.str_curfile.set(bestfldrshort)
             event.widget.configure(bg=GOOD)
-            if self.controller.settings["aggressive"][0].get():
+            if self.controller.settings["aggressive"].get():
                 self.submit(entry=fieldGet)
         else:
             # self.controller.labelFileName()
