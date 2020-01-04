@@ -1,8 +1,12 @@
 # Sorter
 
-## Sort
+Requires https://github.com/GiovanH/pysnip
 
-Sorts photos. Point it a directory `SEL` in a structure such as:
+## Sort.py
+
+![sortdemo](README.assets/sortdemo.gif)
+
+Main GUI. Allows you to sort photos to new or or existing directories, and to rename pictures. Point it a directory `SEL` in a structure such as:
 
 ```
 .
@@ -26,8 +30,3 @@ or
 
 where your unsorted pictures are next to Photo.png.
 
-
-
-## Rename
-
-Originally designed to rename emojis, this was the basis for Sort. CLI-only launch at the moment.
