@@ -1,9 +1,27 @@
-all: sort
+PYTHON=py -3.7
+
+exec_targets=\
+	sort.exe
+
+all: exe
 
 clean:
-	rm -rv build dist
+	$(RM) -r __pycache__
+	$(RM) -r build
+	$(RM) -r dist/
+	$(RM) -r litedist/
 
-sort: sort.exe
+exe: $(addprefix bin/,${exec_targets})
 
-%.exe: %.py
-	pyinstaller $< -F -w
+bin/%.exe: %.py
+	mkdir -p bin
+	${PYTHON} -m PyInstaller \
+		--onefile \
+		--console \
+		--distpath bin \
+		--workpath build \
+		--specpath build \
+		--name $(notdir $@) \
+		$<
+
+.PHONY: all clean exe doc mods
