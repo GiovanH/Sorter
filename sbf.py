@@ -170,7 +170,7 @@ class SidebarFrame(tk.Frame):
             (bestfldrshort, bestfldrpath) = bestFolders[0]
             self.controller.str_curfile.set(bestfldrshort)
             event.widget.configure(bg=GOOD)
-            if self.controller.settings["aggressive"].get():
+            if self.controller.settings["aggressive"][0].get():
                 self.submit(entry=fieldGet)
         else:
             # self.controller.labelFileName()
