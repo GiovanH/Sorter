@@ -17,8 +17,10 @@ import pymaybe
 
 import snip
 import random
-from functools import lru_cache
+import functools
 import collections
+import itertools
+import re
 
 import sbf
 from snip.tkit.contentcanvas import ContentCanvas
@@ -36,6 +38,8 @@ MAX_TRASH_HISTORY = 32
 logger = TriadLogger(__name__)
 
 FolderOption = collections.namedtuple("FolderOption", ["path", "label", "index"])
+UserBoolSetting = collections.namedtuple("UserBoolSetting", ["var", "label"])
+MatchResults = collections.namedtuple("MatchResults", ["all", "resolved", "unique"])
 
 def imageSize(filepath):
     """
@@ -68,7 +72,7 @@ def md5(path):
         return h.hexdigest()
 
 
-@lru_cache()
+@functools.lru_cache()
 def isImage(filepath):
     """
     Returns:
@@ -81,7 +85,7 @@ def isImage(filepath):
         return False
 
 
-@lru_cache()
+@functools.lru_cache()
 def isVideo(filepath):
     """
     Returns:
@@ -94,7 +98,7 @@ def isVideo(filepath):
         return False
 
 
-@lru_cache()
+@functools.lru_cache()
 def fingerprintImage(image_path):
     """
     Returns:
@@ -114,23 +118,75 @@ def cacheClearAll():
     fingerprintImage.cache_clear()
 
 
-@lru_cache()
-def partialQueryMatch(query, collection, fuzzy=False):
-    """Returns a list of indices of matches looking for query in collection.
-
-    Args:
-        query (str):
-        collection (tuple): List of names to search
-        fuzzy (bool, optional): Description
-
-    Returns:
-        list<int>: Indexes of matches in collection
+@functools.lru_cache()
+def getMatches(query, collection, splitRegex=r'[\\ /_-]', fuzzy=False):
     """
-    matchindices = [k.find(query) for k in collection]
-    matches = [i for i in range(0, len(matchindices)) if matchindices[i] == 0]
-    if len(matches) != 1 and fuzzy:
-        matches = [i for i in range(0, len(matchindices)) if matchindices[i] != -1]
-    return matches
+    >>> getMatches("dav ja", collection)
+    MatchResults(all=[], resolved=None, unique=False)
+    >>> getMatches("ri j", collection, fuzzy=True)
+    MatchResults(all=['vris john'], resolved='vris john', unique=True)
+    >>> getMatches("jo", collection)
+    MatchResults(all=['john', 'john rose'], resolved='john', unique=False)
+
+    >>> getMatches("john", collection).resolved
+    'john'
+    >>> getMatches("john", collection).all
+    ['john', 'john rose']
+
+    >>> getMatches("-john", collection).resolved
+    'vris john'
+    >>> getMatches("-rose", collection).resolved
+    'john rose'
+
+    >>> getMatches("jo ro", collection).resolved
+    'john rose'
+    """
+    matches = []
+
+    @functools.lru_cache()
+    def segs(q):
+        return re.split(splitRegex, q)
+
+    query_segs = segs(query)
+    offsetize = bool(re.match(splitRegex, query))
+
+    # Construct list of (item, segs) tuples sorted by the length of segments
+    grouped_item_segs = [(item, segs(item)) for item in collection]
+
+    def lenSegmentsKey(is_):
+        item, item_segs = is_
+        return len(item_segs)
+
+    grouped_item_segs.sort(key=lenSegmentsKey)
+
+    def addSegmentMatches(matchFn):
+        """Adds matches based on matchFn(theirs, ours): segmentMatches[True, False]"""
+        for item, item_segs in grouped_item_segs:
+            if item in matches:
+                continue
+            for offset in range(1 + len(item_segs) - len(query_segs)) if offsetize else [0]:
+                # zipped = [*zip(item_segs, ['']*offset + query_segs)]
+                zipped = [*itertools.zip_longest(
+                    item_segs,
+                    ([''] * offset) + query_segs,
+                    fillvalue=''
+                )]
+                passes_test = all(matchFn(theirs, ours) for (theirs, ours) in zipped)
+                # print(item, list(zipped), offset, offsetize, passes_test)
+                if passes_test:
+                    matches.append(item)
+                    # break
+
+    addSegmentMatches(lambda theirs, ours: theirs.startswith(ours))
+
+    if len(matches) == 0 and fuzzy:
+        addSegmentMatches(lambda theirs, ours: (ours in theirs))
+
+    best = None
+    if len(matches) > 0:
+        best = matches[0]
+
+    return MatchResults(resolved=best, all=matches, unique=(len(matches) == 1))
 
 
 class FileSorter(tk.Tk):
@@ -181,17 +237,20 @@ class FileSorter(tk.Tk):
             self.spool = loom.Spool(1, "Sort misc")
             self.trash = snip.filesystem.Trash(verbose=True, queue_size=MAX_TRASH_HISTORY)
 
+            def userBoolSettingFactory(label, **kwargs):
+                return UserBoolSetting(var=tk.BooleanVar(**kwargs), label=label)
+
             self.settings = {
-                "fuzzy": (tk.BooleanVar(), "Fuzzy search"),
-                "recursive": (tk.BooleanVar(), "Include subdirs as candidates (recursive)"),
-                "makedirs": (tk.BooleanVar(), "Make new folders from main entry"),
-                "parent_dirs": (tk.BooleanVar(), "Use parent directories"),
-                "confident": (tk.BooleanVar(), "Displace rename conflicts"),
-                "aggressive": (tk.BooleanVar(), "Automatically process on unambigious input"),
-                "auto_reload": (tk.BooleanVar(value=True), "Reload on change")
+                "fuzzy": userBoolSettingFactory("Fuzzy search"),
+                "recursive": userBoolSettingFactory("Include subdirs as candidates (recursive)"),
+                "makedirs": userBoolSettingFactory("Make new folders from main entry"),
+                "parent_dirs": userBoolSettingFactory("Use parent directories"),
+                "confident": userBoolSettingFactory("Displace rename conflicts"),
+                "aggressive": userBoolSettingFactory("Automatically process on unambigious input"),
+                "auto_reload": userBoolSettingFactory("Reload on change", value=True)
             }
-            self.settings["parent_dirs"][0].trace("w", lambda *a: self.reloadDirContext())
-            self.settings["recursive"][0].trace("w", lambda *a: self.reloadDirContext())
+            self.settings["parent_dirs"].var.trace("w", lambda *a: self.reloadDirContext())
+            self.settings["recursive"].var.trace("w", lambda *a: self.reloadDirContext())
 
             self.sortkeys = {
                 "{}, {}".format(name, order): (
@@ -406,7 +465,10 @@ class FileSorter(tk.Tk):
             FolderOption(
                 index=i,
                 path=path,
-                label=os.path.basename(os.path.split(path.lower())[0])
+                label=os.path.relpath(
+                    path.lower(),
+                    self.rootpath
+                ).replace('\\', '/')
             )
             for i, path in
             enumerate(sorted(
@@ -458,7 +520,7 @@ class FileSorter(tk.Tk):
         try:
             best_folder = self.getBestFolder(entry)
         except EnvironmentError:
-            if self.settings["makedirs"][0].get():
+            if self.settings["makedirs"].var.get():
                 self.moveToFolder(new_folder_name=entry)
                 # TODO: Logic not clean here?
                 widget.delete(0, last=tk.END)
@@ -500,7 +562,7 @@ class FileSorter(tk.Tk):
         self.frame_sidebar.reFocusEntry()
 
         # If auto, pause to prevent user error
-        if self.settings["aggressive"][0].get():
+        if self.settings["aggressive"].var.get():
             widget.bell()
             widget.config(state='disabled')
             widget.after(600, lambda: (widget.config(
@@ -547,8 +609,11 @@ class FileSorter(tk.Tk):
 
         if query != "":
             # There is not a perfect mapping
-            matches = partialQueryMatch(query, folder_names, fuzzy=self.settings["fuzzy"][0].get())
-            return [self.context_folders[index] for index in matches]
+            return [
+                self.context_folders[folder_names.index(result)]
+                for result in
+                getMatches(query, folder_names, fuzzy=self.settings["fuzzy"].var.get()).all
+            ]
 
     def generatePaths(self, root_path):
         """Generate imageglobs and contextglobs for a root path, setting
@@ -590,7 +655,7 @@ class FileSorter(tk.Tk):
             os.path.join(glob.escape(working_root_path), "..", "")
         )
 
-        if self.settings["parent_dirs"][0].get() or not has_sub_dirs:
+        if self.settings["parent_dirs"].var.get() or not has_sub_dirs:
             self.contextglobs.append(os.path.join(glob.escape(parent_path), "*", ""))
 
         # Pull images from unsorted too
@@ -600,7 +665,7 @@ class FileSorter(tk.Tk):
         ]
 
         # We don't want unsorted in here
-        if self.settings["recursive"][0].get():
+        if self.settings["recursive"].var.get():
             self.contextglobs.append(
                 os.path.join(glob.escape(working_root_path), "*", "*", "")
             )
@@ -741,7 +806,7 @@ class FileSorter(tk.Tk):
         (old_file_dir, old_file_name) = os.path.split(old_file_path)
         output_file_path = os.path.join(old_file_dir, new_file_name + old_ext)
         if os.path.isfile(output_file_path):
-            if self.settings["confident"][0].get():
+            if self.settings["confident"].var.get():
                 logger.info("Renaming conflicting file '%s'", output_file_path)
                 snip.filesystem.renameFileOnly(output_file_path, new_file_name + "_displaced")
             else:
@@ -765,7 +830,7 @@ class FileSorter(tk.Tk):
 
             self.canvas.markCacheDirty(old_file_path)
 
-            if self.settings["auto_reload"][0].get():
+            if self.settings["auto_reload"].var.get():
                 self.resortImageList()
 
         except FileExistsError:
