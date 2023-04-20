@@ -33,8 +33,8 @@ import sbf
 from snip.tkit.contentcanvas import ContentCanvas
 
 
-IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif", "gifv", "jfif", "tga", "pdn", "psd"]
-VIDEOEXTS = ["webm", "mp4", "mov"]
+IMAGEEXTS = ["png", "jpg", "bmp", "jpeg", "tif", "jfif", "tga", "pdn", "psd", "gif", "gifv"]
+VIDEOEXTS = ["webm", "mp4", "mov", "webp"]
 _IMAGEEXTS = ["*." + e for e in IMAGEEXTS]
 _VIDEOEXTS = ["*." + e for e in VIDEOEXTS]
 MATCHEXTS = IMAGEEXTS + VIDEOEXTS
@@ -117,7 +117,12 @@ def isVideo(filename):
         return False
 
 
+@lru_cache()
 def fingerprintImage(image_path):
+    """
+    Returns:
+        str: imagehash perceptual hash
+    """
     import imagehash
     try:
         image = Image.open(image_path)
@@ -171,17 +176,22 @@ class FileSorter(tk.Tk):
             self.filepaths = []
             self.match_fileglobs = match_fileglobs
 
-            self.spool = loom.Spool(1, "Sort misc", belay=True)
-            self.trash = snip.filesystem.Trash(verbose=True)
+            self.str_context = tk.StringVar()
+
+            self.spool = loom.Spool(1, "Sort misc")
+            self.trash = snip.filesystem.Trash(verbose=True, queue_size=MAX_TRASH_HISTORY)
 
             self.settings = {
                 "fuzzy": (tk.BooleanVar(), "Fuzzy search"),
+                "recursive": (tk.BooleanVar(), "Include subdirs as candidates (recursive)"),
+                "makedirs": (tk.BooleanVar(), "Make new folders from main entry"),
                 "parent_dirs": (tk.BooleanVar(), "Use parent directories"),
                 "confident": (tk.BooleanVar(), "Displace rename conflicts"),
                 "aggressive": (tk.BooleanVar(), "Automatically process on unambigious input"),
                 "auto_reload": (tk.BooleanVar(value=True), "Reload on change")
             }
             self.settings["parent_dirs"][0].trace("w", lambda *a: self.reloadDirContext())
+            self.settings["recursive"][0].trace("w", lambda *a: self.reloadDirContext())
 
             self.sortkeys = {
                 "{}, {}".format(name, order): (
@@ -284,20 +294,8 @@ class FileSorter(tk.Tk):
             self.str_curfile.set("No image.")
             return
 
-        prettyname = self.currentImagePath
-        __, fileext = os.path.splitext(self.currentImagePath)
-        try:
-            filename = os.path.split(self.currentImagePath)[1]
-            filesize = snip.strings.bytes_to_string(os.path.getsize(self.currentImagePath))
-            try:
-                frames = snip.image.framesInImage(self.currentImagePath)
-                w, h = Image.open(self.currentImagePath).size
-                prettyname = f"{filename} [{frames}f]\n{filesize} [{w}x{h}px]"
-            except OSError:
-                prettyname = f"{filename}\n{filesize}"
-        except OSError:
-            logger.error("OS error while getting file info", exc_info=True)
-            pass
+        prettyname = self.canvas.getInfoLabel()
+
         self.str_curfile.set(prettyname)
 
     def promptLooseCleanup(self, rootpath, destpath):
@@ -359,12 +357,16 @@ class FileSorter(tk.Tk):
         """
         if not newdir:
             self.update_idletasks()  # Bug with tkinter: the mainloop must loop before calling filedialog
-            newdir = os.path.realpath(filedialog.askdirectory(initialdir=self.rootpath))
+            newdir = filedialog.askdirectory(initialdir=self.rootpath)
+            # Check for "cancel" state
+            if newdir is None or newdir == '':
+                return
+            newdir = os.path.realpath(newdir)
             try:
                 if os.path.relpath(newdir) == '.':
                     return
             except ValueError:
-                # No shared base
+                # No shared base, ignore
                 pass
         self.rootpath = newdir
         # self.generatePaths(newdir)
@@ -377,9 +379,8 @@ class FileSorter(tk.Tk):
         # Initialize data
         self.reloadDirContext()
 
-        # self.resortImageList() #  done in reloadDirContext
-
-        self.frame_sidebar.progbar_prog.configure(maximum=len(self.filepaths))
+        self.frame_sidebar.progbar_prog.configure(max=len(self.filepaths) - 1)
+        self.frame_sidebar.progbar_seek.configure(to=self.original_image_count)
 
     def reloadDirContext(self):
         """Reload globs, keys, and context for our directory.
@@ -674,17 +675,39 @@ class FileSorter(tk.Tk):
             self.filepaths.remove(file_to_delete)
 
             self.trash.delete(file_to_delete)
+            # self.deleted_images_count += 1
 
             def _undo(self):
+                """Summary
+                """
                 self.trash.undo()
                 self.canvas.markCacheDirty(file_to_delete)
                 self.filepaths.insert(old_index, file_to_delete)
+                # self.deleted_images_count -= 1
                 # self.prevImage()
             self.undo.append(_undo)
 
             # spool.enqueue(trash, (file_to_delete,), dict(undos=self.undo))
             self.canvas.markCacheDirty(file_to_delete)
             self.imageUpdate("File deleted")
+
+    def doPrefixRename(self, event):
+        """Summary
+
+        Args:
+            event (TYPE): Description
+        """
+        entry = event.widget.get()
+        if entry == "":
+            self.nextImage()
+            return
+
+        old_file_path = self.currentImagePath
+        old_file_dir, old_file_name = os.path.split(old_file_path)
+        old_plain, old_ext = os.path.splitext(old_file_name)
+
+        self._dorename(entry + '_' + old_plain)
+        event.widget.delete(0, last=tk.END)
 
     def dorename(self, event):
         """Rename current file.
@@ -698,23 +721,40 @@ class FileSorter(tk.Tk):
             self.nextImage()
             return
 
-        old_file_path = self.currentImagePath
+        self._dorename(entry)
+        event.widget.delete(0, last=tk.END)
 
-        new_file_name = entry + os.path.splitext(old_file_path)[1]
+    def _dorename(self, new_file_name):
+        """Summary
+
+        Args:
+            new_file_name (TYPE): Description
+        """
+        old_file_path = self.currentImagePath
+        old_filename, old_ext = os.path.splitext(old_file_path)
 
         (old_file_dir, old_file_name) = os.path.split(old_file_path)
-        conflicting_file_path = os.path.join(old_file_dir, new_file_name)
-        if os.path.isfile(conflicting_file_path):
+        output_file_path = os.path.join(old_file_dir, new_file_name + old_ext)
+        if os.path.isfile(output_file_path):
             if self.settings["confident"][0].get():
-                logger.info("Renaming conflicting file '%s'", conflicting_file_path)
-                snip.filesystem.renameFileOnly(conflicting_file_path, entry + "_displaced")
+                logger.info("Renaming conflicting file '%s'", output_file_path)
+                snip.filesystem.renameFileOnly(output_file_path, new_file_name + "_displaced")
             else:
-                return
+                stem, ext = os.path.splitext(new_file_name)
+                style = f"{stem} (<#>)"
+                i = 0
+                while os.path.isfile(output_file_path):
+                    i += 1
+                    new_file_name = style.replace('<#>', str(i))
+                    output_file_path = os.path.join(old_file_dir, new_file_name + old_ext)
+                    assert i < 100
+                assert not os.path.isfile(output_file_path)
         try:
-            snip.filesystem.renameFileOnly(old_file_path, entry)
+            logger.info(f"{old_file_path} -> {new_file_name}")
+            snip.filesystem.renameFileOnly(old_file_path, new_file_name)
             self.undo.append(
                 lambda s: snip.filesystem.renameFileOnly(
-                    conflicting_file_path,
+                    output_file_path,
                     old_file_name
                 ))
 
@@ -725,16 +765,13 @@ class FileSorter(tk.Tk):
 
         except FileExistsError:
             logger.error("Can't rename file %s: file exists", old_file_path, exc_info=True)
-        finally:
-            # Clear field
-            event.widget.delete(0, last=tk.END)
-        # self.frame_sidebar.reFocusEntry()
 
     def moveToFolder(self, event=None, new_folder_name=""):
         """Move the current image to a folder, which can be new.
 
         Args:
             event (TYPE): Tk triggering event
+            new_folder_name (str, optional): Description
         """
         if event:
             new_folder_name = event.widget.get()
@@ -752,9 +789,12 @@ class FileSorter(tk.Tk):
 
             old_folder, old_filename = os.path.split(old_file_path)
             snip.filesystem.moveFileToDir(old_file_path, newdir)
+            # self.deleted_images_count += 1
+            # TODO: Technically, this undo should decrement the deleted images count? Requires a rewrite.
             self.undo.append(
                 lambda self: snip.filesystem.moveFileToFile(
-                    os.path.join(newdir, old_filename), old_file_path)
+                    os.path.join(newdir, old_filename), old_file_path
+                )
             )
 
             self.canvas.markCacheDirty(old_file_path)
@@ -790,15 +830,13 @@ class FileSorter(tk.Tk):
         self.imageUpdate("Undo operation")
 
 
-def run_threaded():
-    """Run the program with threading support
-    """
-
+def main():
     try:
         ap = argparse.ArgumentParser()
-        ap.add_argument("-b", "--base",
-                        help="Root folder. Should contain folders, one of which can be named unsorted.",
-                        default=snip.filesystem.userProfile("Downloads"))
+        ap.add_argument(
+            "-b", "--base",
+            help="Root folder. Should contain folders, one of which can be named unsorted.",
+            default=snip.filesystem.userProfile("Downloads"))
         ap.add_argument(
             "-e", "--extensions", nargs='+', default=_MATCHEXTS,
             help="Substrings in the path to penalize during file sorting.")
@@ -814,4 +852,4 @@ def run_threaded():
 
 
 if __name__ == "__main__":
-    run_threaded()
+    main()

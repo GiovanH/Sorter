@@ -82,6 +82,13 @@ class SidebarFrame(tk.Frame):
         self.entry_rename.grid(row=rowInOrder(), sticky="WE")
         self.entry_rename.bind("<Return>", self.controller.dorename)
 
+        lab_rename = ttk.Label(self, text="Rename Prefix")
+        lab_rename.grid(row=rowInOrder())
+
+        self.entry_rename = highlightEntry(self)
+        self.entry_rename.grid(row=rowInOrder(), sticky="WE")
+        self.entry_rename.bind("<Return>", self.controller.doPrefixRename)
+
         # context keys
         lab_context_label = ttk.Label(self, text="Folder IDs:")
         lab_context_label.grid(row=rowInOrder())
@@ -101,6 +108,7 @@ class SidebarFrame(tk.Frame):
 
         settings_popup.add_separator()
         settings_popup.add_command(label="Add Unsorted to base", command=self.controller.addUnsortedToBase)
+        settings_popup.add_command(label="Commit deleted files now", command=self.controller.trash.flush)
 
         # settings_popup.add_separator()
 
