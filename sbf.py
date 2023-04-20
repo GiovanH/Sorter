@@ -162,27 +162,32 @@ class SidebarFrame(tk.Frame):
         BAD = "#FFAAAA"
         NORMAL = "#FFFFFF"
 
-        fieldGet = event.widget.get()
+        query = event.widget.get()
         if event.keycode == 32:
-            fieldGet = fieldGet[:-1]  # Delete space character
+            query = query[:-1]  # Delete space character
 
-        if fieldGet == "":
+        if query == "":
             event.widget.configure(bg=NORMAL)
             self.highlightListboxItems([])
-            self.controller.labelFileName()
+            self.controller.updateLabelFileName()
             return
-        bestFolders = self.controller.getBestFolders(fieldGet)
-        bestFolderIndices = self.controller.getBestFolders(fieldGet, indexOnly=True)
-        self.highlightListboxItems(bestFolderIndices)
-        if len(bestFolderIndices) == 1:
-            (bestfldrshort, bestfldrpath) = bestFolders[0]
-            self.controller.str_curfile.set(bestfldrshort)
+
+        # Use controller folder to "predict" action and highlight
+        best_folder_list = self.controller.getBestFolders(query)
+
+        self.highlightListboxItems([ir.index for ir in best_folder_list])
+
+        # Preview target, state
+        if len(best_folder_list) == 1:
+            best_folder = best_folder_list[0]
+            self.controller.str_curfile.set(best_folder.label)
             event.widget.configure(bg=GOOD)
+
+            # Automatically submit if aggressive
             if self.controller.settings["aggressive"][0].get():
-                self.submit(entry=fieldGet)
+                self.submit(entry=query)
         else:
-            # self.controller.labelFileName()
             self.controller.str_curfile.set(
-                ", ".join([short for (short, l) in bestFolders])
+                ", ".join([li.label for li in best_folder_list])
             )
             event.widget.configure(bg=BAD)

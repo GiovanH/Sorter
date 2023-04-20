@@ -1,13 +1,3 @@
-"""sort.py
-sort images
-
-Attributes:
-    COMPLETION_KEYS (list): Keys that signify completion
-    FILL (TYPE): Tk shortcut for all sticky directions
-    IMAGEEXTS (list): Valid file extensions for images
-    WFILL (TYPE): Tk shortcut for wide sticky directions
-"""
-
 import tkinter as tk
 
 from snip import loom
@@ -22,12 +12,13 @@ import os
 import glob
 
 import argparse
-import traceback
 
 import pymaybe
 
 import snip
 import random
+from functools import lru_cache
+import collections
 
 import sbf
 from snip.tkit.contentcanvas import ContentCanvas
@@ -40,78 +31,64 @@ _VIDEOEXTS = ["*." + e for e in VIDEOEXTS]
 MATCHEXTS = IMAGEEXTS + VIDEOEXTS
 _MATCHEXTS = _IMAGEEXTS + _VIDEOEXTS
 
-
-COMPLETION_KEYS = [32, 8]
-
 MAX_TRASH_HISTORY = 32
 
 logger = TriadLogger(__name__)
 
+FolderOption = collections.namedtuple("FolderOption", ["path", "label", "index"])
 
-def baseFolderName(path):
-    return os.path.basename(os.path.split(path)[0])
-
-
-def imageSize(filename):
-    """Get the number of pixels in an image
-
-    Args:
-        filename (str): Path to file
-
+def imageSize(filepath):
+    """
     Returns:
         int: Number of pixels in image
     """
     try:
-        w, h = Image.open(filename).size
+        w, h = Image.open(filepath).size
         return w * h
     except OSError:
-        logger.warning("WARNING! OS error with file: ", filename)
+        logger.warning("WARNING! OS error with file: ", filepath)
         return 0
     except FileNotFoundError:
-        logger.warning("WARNING! File not found: ", filename)
+        logger.warning("WARNING! File not found: ", filepath)
         return 0
 
 
 def md5(path):
-    import hashlib
     """Gives the md5 hash of a file on disk.
     Args:
         path (str): Path to a file
-    
+
     Returns:
         str: MD5 hex digest
     """
+    import hashlib
     with open(path, 'rb') as afile:
         h = hashlib.md5()
         h.update(afile.read())
         return h.hexdigest()
 
 
-def isImage(filename):
+@lru_cache()
+def isImage(filepath):
     """
-    Args:
-        filename (str): Path to a file
-
     Returns:
         bool: True if the path points to an image, else False.
     """
     try:
-        return os.path.splitext(filename)[1].lower() in _IMAGEEXTS
+        return os.path.splitext(filepath)[1].lower() in _IMAGEEXTS
     except IndexError:
         # No extension
         return False
 
 
-def isVideo(filename):
+@lru_cache()
+def isVideo(filepath):
     """
-    Args:
-        filename (str): Path to a file
-
     Returns:
         bool: True if the path points to an video, else False.
     """
     try:
-        return os.path.splitext(filename)[1].lower() in _VIDEOEXTS
+        return os.path.splitext(filepath)[1].lower() in _VIDEOEXTS
     except IndexError:
         # No extension
         return False
@@ -127,12 +104,33 @@ def fingerprintImage(image_path):
     try:
         image = Image.open(image_path)
         proc_hash = str(imagehash.dhash(image, hash_size=10))
-        # Compress:
-        # proc_hash = proc_hash.decode("hex").encode("base64")
-    except:
+    except Exception:
         logger.error("Can't fingerprint %s", image_path, exc_info=True)
         proc_hash = md5(image_path)
     return proc_hash
+
+
+def cacheClearAll():
+    fingerprintImage.cache_clear()
+
+
+@lru_cache()
+def partialQueryMatch(query, collection, fuzzy=False):
+    """Returns a list of indices of matches looking for query in collection.
+
+    Args:
+        query (str):
+        collection (tuple): List of names to search
+        fuzzy (bool, optional): Description
+
+    Returns:
+        list<int>: Indexes of matches in collection
+    """
+    matchindices = [k.find(query) for k in collection]
+    matches = [i for i in range(0, len(matchindices)) if matchindices[i] == 0]
+    if len(matches) != 1 and fuzzy:
+        matches = [i for i in range(0, len(matchindices)) if matchindices[i] != -1]
+    return matches
 
 
 class FileSorter(tk.Tk):
@@ -140,43 +138,45 @@ class FileSorter(tk.Tk):
     """Summary
 
     Attributes:
-        canvas (TYPE): Description
-        context (TYPE): Description
-        contextglobs (TYPE): Description
-        curimg (TYPE): Description
-        filepaths (TYPE): Description
-        frame_sidebar (TYPE): Description
-        image_index (int): Description
-        imageglobs (TYPE): Description
-        keycache (dict): Description
-        folders_by_name (TYPE): Description
-        folder_names (TYPE): Description
-        lab_curfile (TYPE): Description
-        rootpath (TYPE): Description
-        str_context (tk.Stringvar): Description
-        str_curfile (tk.Stringvar): Description
+        canvas (TYPE): Large image canvas tkwidget
+        context_folders (list<FolderOptions>): Folders that are target options, shown in sidebar
+        contextglobs (list<str>): Globs that select context folders
+
+        filepaths (list<str>): List of filepaths being processed
+        frame_sidebar (TYPE): Sidebarframe tk widget
+        image_ext_globs (TYPE): File globs to filter what files we process
+        image_index (int): Current index
+
+        imageglobs (TYPE): Full glob w/ path to select files
+        newFolderRoot (TYPE): Folder that contains any new folders
+
+        rootpath (TYPE): The current root path of the program
+        settings ({key: (tk.BooleanVar, Str)}): User-configurable runtime settings
+
+        sorter (callable): The current sorting function used to order the file list
+        sortkeys (TYPE): List of sorting options, passed to sidebarframe
+
+        spool (TYPE): Description
+        str_curfile (tk.Stringvar): Stringvar for the pretty formatted current file
+        trash (TYPE): Description
         undo (list): Stack of functions to process via ctrl+z
     """
 
-    def __init__(self, rootpath, match_fileglobs, *args, **kwargs):
+    def __init__(self, rootpath, image_ext_globs, *args, **kwargs):
         """File sorter main window
-
         Passthrough to tk.Tk
+
         Args:
-            rootpath (TYPE): Description
-            *args: Description
-            **kwargs: Description
+            rootpath (str): Starting root path
+            image_ext_globs (str): Starting fileglobs to match
         """
         super(FileSorter, self).__init__(*args, **kwargs)
 
         try:
             self.image_index = 0
-            self.str_context = tk.StringVar()
             self.undo = []
             self.filepaths = []
-            self.match_fileglobs = match_fileglobs
-
-            self.str_context = tk.StringVar()
+            self.image_ext_globs = image_ext_globs
 
             self.spool = loom.Spool(1, "Sort misc")
             self.trash = snip.filesystem.Trash(verbose=True, queue_size=MAX_TRASH_HISTORY)
@@ -216,21 +216,20 @@ class FileSorter(tk.Tk):
 
             self.sorter = sorted
 
-            self.lastwh = tuple()
-            self.onResizeCallback = None
-
             self.initwindow()
-
             self.openDir(rootpath)
 
             self.mainloop()
+
         except KeyboardInterrupt:
-            logger.warning("Window init aborted")
+            logger.warning("Window loop aborted")
             self.destroy()
 
     # Windowing and GUI
 
     def destroy(self):
+        """Summary
+        """
         self.spool.finish()
         self.trash.finish()
         super().destroy()
@@ -244,8 +243,8 @@ class FileSorter(tk.Tk):
         # # Header stuff # #
         # current filename label
         self.str_curfile = tk.StringVar(value="No Images Found")
-        self.lab_curfile = tk.Label(textvariable=self.str_curfile, height=2)
-        self.lab_curfile.grid(row=0, column=1)
+        lab_curfile = tk.Label(textvariable=self.str_curfile, height=2)
+        lab_curfile.grid(row=0, column=1)
 
         # Canvas stuff
         self.canvas = ContentCanvas(self, takefocus=True)
@@ -267,7 +266,7 @@ class FileSorter(tk.Tk):
 
         # self.bind("<Up>", self.keepImage)
         # self.bind("<Down>", self.fastDelete)
-        self.bind("<End>", self.doUndo)
+        # self.bind("<End>", self.doUndo)
 
         self.canvas.bind("<f>", self.nextImage)
         self.canvas.bind("<s>", self.prevImage)
@@ -287,8 +286,8 @@ class FileSorter(tk.Tk):
 
         self.columnconfigure(0, minsize=160)
 
-    def labelFileName(self):
-        """Generate a user-friendly filename for the header
+    def updateLabelFileName(self):
+        """Generate a user-friendly filename for the header and set str_curfile.
         """
         if self.currentImagePath is None:
             self.str_curfile.set("No image.")
@@ -299,17 +298,23 @@ class FileSorter(tk.Tk):
         self.str_curfile.set(prettyname)
 
     def promptLooseCleanup(self, rootpath, destpath):
+        """Check if there are files in rootpath, and offer to move them to destpath.
+        """
         assert os.path.isdir(rootpath)
         assert os.path.isdir(destpath)
-        imageglobs = [os.path.join(glob.escape(rootpath), ext) for ext in self.match_fileglobs]
+
+        imageglobs = [os.path.join(glob.escape(rootpath), ext) for ext in self.image_ext_globs]
         loose_files = list(filter(self.trash.isfile, sum([glob.glob(a) for a in imageglobs], [])))
+
         num_loose_files = len(loose_files)
         if num_loose_files == 0:
             return
+
         can_do_cleanup = messagebox.askyesno(
             title="Clean up directory?",
             message="""Move {num_loose_files} files into single directory?\nFiles in: {rootpath}\nNew folder: {destpath}\n\nFiles to move: {flist}""".format(flist=", ".join(loose_files[:30]), **locals())
         )
+
         if can_do_cleanup:
             for oldfile in loose_files:
                 try:
@@ -317,30 +322,34 @@ class FileSorter(tk.Tk):
                 except FileExistsError:
                     pass
 
-    def populateContextKeyFrame(self):
-        """Generate and refresh the sidebar listbox
-        """
+    def updateContextListFrame(self):
+        """Generate and refresh the sidebar listbox"""
+        # Reset and clear
         self.frame_sidebar.listbox_context.configure(state=tk.NORMAL)
         self.frame_sidebar.listbox_context.delete(0, self.frame_sidebar.listbox_context.size())
-        for val in self.folder_names:
+        # Populate with new values from folder_names
+        for opt in self.context_folders:
             self.frame_sidebar.listbox_context.insert(
-                tk.END, "{}".format(val[0:15]))
-        # self.frame_sidebar.listbox_context.configure(state=tk.DISABLED)
+                tk.END, "{}".format(opt.label[0:32]))
 
     # Context and context manipulation
 
     def changeMatchGlobs(self, newmatchglobs=None):
-        logger.debug(self.match_fileglobs)
+        """Summary
+
+        Args:
+            newmatchglobs (None, optional): Description
+        """
+        logger.debug(self.image_ext_globs)
         if not newmatchglobs:
             from tkinter.simpledialog import askstring
-            newmatchglobs = askstring("Filter", "Enter new globs seperated by ', '", initialvalue=", ".join(self.match_fileglobs))
+            newmatchglobs = askstring("Filter", "Enter new globs seperated by ', '", initialvalue=", ".join(self.image_ext_globs))
 
         logger.debug(newmatchglobs)
 
-        self.match_fileglobs = newmatchglobs.split(", ")
+        self.image_ext_globs = newmatchglobs.split(", ")
         self.reloadDirContext()
         self.imageUpdate()
-
 
     @property
     def currentImagePath(self):
@@ -354,6 +363,9 @@ class FileSorter(tk.Tk):
 
         Args:
             newdir (str, optional): Path of new directory. If blank, prompts user.
+
+        Returns:
+            TYPE: Description
         """
         if not newdir:
             self.update_idletasks()  # Bug with tkinter: the mainloop must loop before calling filedialog
@@ -368,6 +380,7 @@ class FileSorter(tk.Tk):
             except ValueError:
                 # No shared base, ignore
                 pass
+
         self.rootpath = newdir
         # self.generatePaths(newdir)
 
@@ -375,30 +388,46 @@ class FileSorter(tk.Tk):
 
         # Initialize images
         self.image_index = 0
+        # self.deleted_images_count = 0
 
         # Initialize data
         self.reloadDirContext()
 
         self.frame_sidebar.progbar_prog.configure(max=len(self.filepaths) - 1)
-        self.frame_sidebar.progbar_seek.configure(to=self.original_image_count)
+        # Just reloaded, so current length is max
+        self.frame_sidebar.progbar_seek.configure(to=len(self.filepaths))
 
     def reloadDirContext(self):
         """Reload globs, keys, and context for our directory.
         """
         self.generatePaths(self.rootpath)
 
-        context = sum([glob.glob(a) for a in self.contextglobs], [])
-        self.folders_by_name = {baseFolderName(path.lower()): path for path in context}
-        self.folder_names = list(self.folders_by_name.keys())  # Constant order
-        self.keycache = {}
-        self.populateContextKeyFrame()
+        self.context_folders = [
+            FolderOption(
+                index=i,
+                path=path,
+                label=os.path.basename(os.path.split(path.lower())[0])
+            )
+            for i, path in
+            enumerate(sorted(
+                sum([glob.glob(a, recursive=True) for a in self.contextglobs], [])
+            ))
+        ]
+        self.updateContextListFrame()
         self.resortImageList()
 
     def resortImageList(self):
         """Reload filepaths, rescan for images.
         """
         logger.info("Resorting image list")
-        self.filepaths = self.sorter(filter(self.trash.isfile, sum([glob.glob(a) for a in self.imageglobs], [])))
+
+        self.filepaths = self.sorter(
+            filter(
+                self.trash.isfile,  # Only non-deleted paths, according to our trash
+                sum([glob.glob(a) for a in self.imageglobs], [])
+            )
+        )
+
         self.imageUpdate("Resorted image list")
 
     # Generators and logic
@@ -409,9 +438,11 @@ class FileSorter(tk.Tk):
         Args:
             event (bool, optional): Tk triggerinv event.
             entry (str, optional): Text of entry, if no triggering event.
+
+        Returns:
+            TYPE: Description
         """
 
-        old_file_path = self.currentImagePath
         if event:
             entry = event.widget.get()
             widget = event.widget
@@ -422,15 +453,24 @@ class FileSorter(tk.Tk):
             self.nextImage()
             return
 
+        old_file_path = self.currentImagePath
+
         try:
-            (short, choice) = self.getBestFolder(entry)
+            best_folder = self.getBestFolder(entry)
         except EnvironmentError:
-            logger.error("Bad key %s", entry, exc_info=True)
-            self.str_curfile.set(
-                "Invalid key: {}".format(entry))
+            if self.settings["makedirs"][0].get():
+                self.moveToFolder(new_folder_name=entry)
+                # TODO: Logic not clean here?
+                widget.delete(0, last=tk.END)
+            else:
+                logger.error("Bad key %s", entry, exc_info=True)
+                self.str_curfile.set(
+                    "Invalid key: {}".format(entry))
             return
 
-        destination_dir = choice
+        destination_dir = best_folder.path
+
+        # If the destination has an "unsorted" folder, move there instead.
         usubdir = os.path.join(destination_dir, "unsorted")
         if os.path.exists(usubdir):
             destination_dir = usubdir
@@ -440,14 +480,14 @@ class FileSorter(tk.Tk):
             self.reloadDirContext()
             return
         old_index = self.filepaths.index(old_file_path)
-        
+
         def doMove():
             (old_file_dir, old_file_name) = os.path.split(old_file_path)
             new_file_path = os.path.join(destination_dir, old_file_name)
-            
+
             snip.filesystem.moveFileToFile(old_file_path, destination_dir)
 
-            def _undo():
+            def _undo(self):
                 snip.filesystem.moveFileToFile(new_file_path, old_file_path)
                 self.filepaths.insert(old_index, old_file_path)
             self.undo.append(_undo)
@@ -459,7 +499,7 @@ class FileSorter(tk.Tk):
         # Clear field
         self.frame_sidebar.reFocusEntry()
 
-        # If auto, pause to prevent error
+        # If auto, pause to prevent user error
         if self.settings["aggressive"][0].get():
             widget.bell()
             widget.config(state='disabled')
@@ -468,12 +508,12 @@ class FileSorter(tk.Tk):
 
         self.imageUpdate("Submit")
 
-    def getBestFolder(self, entry, indexOnly=False):
+    def getBestFolder(self, entry):
         """Wrapper around getBestFolders to find a single best folder.
 
         Args:
             entry (str): Shortcode, search term
-            fuzzy (bool, optional): Use fuzzy algorithm
+            indexOnly (bool, optional): Description
 
         Returns:
             TYPE: Description
@@ -481,138 +521,114 @@ class FileSorter(tk.Tk):
         Raises:
             EnvironmentError: If there is more than one acceptable folder
         """
-        gbf = self.getBestFolders(entry, indexOnly=indexOnly)
-        if len(gbf) == 1:
-            return gbf[0]
+        best_folder_list = self.getBestFolders(entry)
+        if len(best_folder_list) == 1:
+            return best_folder_list[0]
         else:
-            raise EnvironmentError("Ambiguous folder selected, could be any of: {}".format(gbf))
+            raise EnvironmentError("Ambiguous folder selected, could be any of: {}".format(best_folder_list))
 
-    def getBestFolders(self, entry, indexOnly=False):
+    def getBestFolders(self, entry):
         """Finds folders that match the search term
 
         Args:
             entry (str): Shortcode, search term
-            fast (bool, optional): Use fast algorithm
+            indexOnly (bool, optional): Description
 
         Returns:
             list<int>: List of valid match INDEXES. Indexes reference self.folder_names
         """
-        entry = entry.lower()
+        query = entry.lower()
 
-        fuzzy = self.settings["fuzzy"][0].get()
+        folder_names = tuple(opt.label for opt in self.context_folders)
 
-        if self.keycache.get(entry) is not None:
-            cachedIndex = self.keycache.get(entry)
-            if indexOnly:
-                return [cachedIndex]
-            else:
-                return [(self.folder_names[cachedIndex], self.folders_by_name.get(self.folder_names[cachedIndex]))]
+        # Exact match
+        if query in folder_names:
+            return self.context_folders[folder_names.index(query)]
 
-        if entry in self.folder_names:
-            if indexOnly:
-                return [self.folder_names.index(entry)]
-            else:
-                return [(entry, self.folders_by_name.get(entry))]
-
-        if entry != "":
-            keys = self.folder_names
+        if query != "":
             # There is not a perfect mapping
-            matchindices = [k.find(entry) for k in keys]
-            matches = [i for i in range(0, len(matchindices)) if matchindices[i] == 0]
-            if len(matches) == 1:
-                self.keycache[entry] = matches[0]    # Learn.
-                logger.debug("Learning: {} : {}".format(entry, matches[0]))
-            elif fuzzy:
-                matches = [i for i in range(0, len(matchindices)) if matchindices[i] != -1]
-                if len(matches) == 1:
-                    self.keycache[entry] = matches[0]    # Learn.
-                    logger.debug("Learning: {} : {}".format(entry, matches[0]))
-            if indexOnly:
-                return matches
-            else:
-                return [(self.folder_names[index], self.folders_by_name.get(self.folder_names[index])) for index in matches]
+            matches = partialQueryMatch(query, folder_names, fuzzy=self.settings["fuzzy"][0].get())
+            return [self.context_folders[index] for index in matches]
 
-    def generatePaths(self, rootpath):
-        """Generate imageglobs and contextglobs for a root path
+    def generatePaths(self, root_path):
+        """Generate imageglobs and contextglobs for a root path, setting
+            self.imageglobs
+            self.contextglobs
+            self.newFolderRoot
 
         Args:
-            rootpath (str): Root path to search
+            root_path (str): Root path to search
         """
-        logger.info("Generating paths for: {}".format(rootpath))
+        logger.info("Generating paths for: {}".format(root_path))
+        logger.info(f"Filtering to files with extensions {self.image_ext_globs}")
+
         # Pull loose images
         self.imageglobs = [
-            os.path.join(glob.escape(rootpath), ext) for ext in self.match_fileglobs]
+            os.path.join(glob.escape(root_path), ext)
+            for ext in self.image_ext_globs
+        ]
 
         # print("Image Globs:", self.imageglobs)
 
-        subdirectory_unsorted = os.path.join(rootpath, "unsorted")
+        subdirectory_unsorted = os.path.join(root_path, "unsorted")
+        parent_path = os.path.join(root_path, "..")
 
-        parentpath = os.path.join(rootpath, "..")
-        
         if os.path.exists(subdirectory_unsorted):
-            self.promptLooseCleanup(rootpath, subdirectory_unsorted)
+            self.promptLooseCleanup(root_path, subdirectory_unsorted)
 
         # Put images in same-level directories
+        has_sub_dirs = glob.glob(os.path.join(root_path, "*", ""))
+        working_root_path = (root_path if has_sub_dirs else parent_path)
 
-        has_sub_dirs = glob.glob(os.path.join(rootpath, "*", ""))
-
+        # Candidate folders: folders in root_path
         self.contextglobs = [
-            os.path.join(glob.escape(rootpath), "*", "")
+            os.path.join(glob.escape(root_path), "*", "")
         ]
 
-        if has_sub_dirs:
-            self.contextglobs.append(os.path.join(glob.escape(rootpath), "..", ""))
-        else:
-            self.contextglobs.append(os.path.join(glob.escape(parentpath), "..", ""))
+        # Candidate folders: "up" folder (of root OR parent)
+        self.contextglobs.append(
+            os.path.join(glob.escape(working_root_path), "..", "")
+        )
 
         if self.settings["parent_dirs"][0].get() or not has_sub_dirs:
-            self.contextglobs.append(os.path.join(glob.escape(parentpath), "*", ""))
+            self.contextglobs.append(os.path.join(glob.escape(parent_path), "*", ""))
 
         # Pull images from unsorted too
         self.imageglobs += [
-            os.path.join(subdirectory_unsorted, ext) for ext in self.match_fileglobs]
+            os.path.join(subdirectory_unsorted, ext)
+            for ext in self.image_ext_globs
+        ]
 
-        logger.debug("Context globs: %s", self.contextglobs)
-        if has_sub_dirs:
-            self.newFolderRoot = rootpath  # Where we make new folders
-        else:
-            self.newFolderRoot = parentpath  # Where we make new folders
+        # We don't want unsorted in here
+        if self.settings["recursive"][0].get():
+            self.contextglobs.append(
+                os.path.join(glob.escape(working_root_path), "*", "*", "")
+            )
+
+        logger.info("Context globs: %s", self.contextglobs)
+        self.newFolderRoot = working_root_path  # Where we make new folders
 
     def nextImage(self, event=None):
         """Show the next image
-
-        Args:
-            event (optional): tk triggering event
         """
         self.image_index += 1
         self.imageUpdate("Next image")
 
     def prevImage(self, event=None):
         """Show the previous image
-
-        Args:
-            event (optional): tk triggering event
         """
         self.image_index -= 1
         self.imageUpdate("Prev image")
 
     def gotoImage(self, index):
-        """Show the previous image
-
-        Args:
-            event (optional): tk triggering event
+        """Go to an image (based on a seek event)
         """
         self.image_index = int(float(index))
         self.imageUpdate("Seek")
 
     def imageUpdate(self, event=None):
-        # print(
-        #     "Image Update: {}/{} (Cause: {})".format(
-        #         self.image_index, 
-        #         len(self.filepaths), 
-        #         event
-        #     )
-        # )
+        """Update widgets to reflect a new selected image
+        """
 
         if len(self.filepaths) == 0:
             self.image_index = 0
@@ -621,36 +637,35 @@ class FileSorter(tk.Tk):
             return
 
         # Wraparound image indicies
-        prev_index = self.image_index
         self.image_index = self.image_index % len(self.filepaths)
-        # if self.image_index != prev_index:
-        #     print("Wrapped, reloading...")
-        #     print("W: {}/{}".format(self.image_index, len(self.filepaths) - 1))
 
         while not self.canvas.setFile(self.currentImagePath):
             self.filepaths.remove(self.currentImagePath)
-            
-        self.labelFileName()
+
+        self.updateLabelFileName()
         self.frame_sidebar.var_progbar_seek.set(self.image_index)
-        self.frame_sidebar.progbar_seek.configure(to=len(self.filepaths) - 1)
         self.frame_sidebar.var_progbar_prog.set(len(self.filepaths))
 
         # Preloading
         start = (self.image_index - 4) % len(self.filepaths)
         end = (self.image_index + 8) % len(self.filepaths)
+
         # Wraparound
         if start > end:
-            # print(start, ":", len(self.filepaths))
             self.canvas.preloadImage(self.filepaths[start:len(self.filepaths)])
-            # print(0, ":", end)
             self.canvas.preloadImage(self.filepaths[0:end])
         else:
-            # print(start, ":", end)
             self.canvas.preloadImage(self.filepaths[start:end])
 
     # Disk action
 
     def keepImage(self, event=None):
+        """Summary
+
+        Args:
+            event (None, optional): Description
+        """
+        print("keepimage")
         keepdir = os.path.join("keep", os.path.split(self.rootpath)[1])
         self.spool.enqueue(self.moveToFolder, (), dict(new_folder_name=keepdir))
 
@@ -666,6 +681,9 @@ class FileSorter(tk.Tk):
 
     def delete(self, preconfirmed=False):
         """Delete the currently selected file
+
+        Args:
+            preconfirmed (bool, optional): Description
         """
         file_to_delete = self.currentImagePath
         confirmed = preconfirmed or messagebox.askyesno(
@@ -692,11 +710,6 @@ class FileSorter(tk.Tk):
             self.imageUpdate("File deleted")
 
     def doPrefixRename(self, event):
-        """Summary
-
-        Args:
-            event (TYPE): Description
-        """
         entry = event.widget.get()
         if entry == "":
             self.nextImage()
@@ -710,12 +723,7 @@ class FileSorter(tk.Tk):
         event.widget.delete(0, last=tk.END)
 
     def dorename(self, event):
-        """Rename current file.
-
-        Args:
-            event (TYPE): Tk triggering event
-        """
-
+        """Rename current file."""
         entry = event.widget.get()
         if entry == "":
             self.nextImage()
@@ -725,10 +733,7 @@ class FileSorter(tk.Tk):
         event.widget.delete(0, last=tk.END)
 
     def _dorename(self, new_file_name):
-        """Summary
-
-        Args:
-            new_file_name (TYPE): Description
+        """Rename current file to new_file_name
         """
         old_file_path = self.currentImagePath
         old_filename, old_ext = os.path.splitext(old_file_path)
@@ -768,10 +773,6 @@ class FileSorter(tk.Tk):
 
     def moveToFolder(self, event=None, new_folder_name=""):
         """Move the current image to a folder, which can be new.
-
-        Args:
-            event (TYPE): Tk triggering event
-            new_folder_name (str, optional): Description
         """
         if event:
             new_folder_name = event.widget.get()
@@ -785,10 +786,10 @@ class FileSorter(tk.Tk):
             if not os.path.isdir(newdir):
                 os.makedirs(newdir, exist_ok=True)
                 self.reloadDirContext()
-            # filemove(old_file_path, newdir)
 
             old_folder, old_filename = os.path.split(old_file_path)
             snip.filesystem.moveFileToDir(old_file_path, newdir)
+
             # self.deleted_images_count += 1
             # TODO: Technically, this undo should decrement the deleted images count? Requires a rewrite.
             self.undo.append(
@@ -802,6 +803,7 @@ class FileSorter(tk.Tk):
             self.filepaths.remove(old_file_path)
             self.image_index -= 1
             self.nextImage()
+
         except Exception:
             logger.error("Can't move to folder", exc_info=True)
             raise
@@ -814,9 +816,6 @@ class FileSorter(tk.Tk):
 
     def doUndo(self, event):
         """Process an undo operation, handling the stack.
-
-        Args:
-            event: Tk triggering event
         """
         if len(self.undo) == 0:
             return
@@ -825,8 +824,6 @@ class FileSorter(tk.Tk):
 
         op = self.undo.pop()
         op(self)
-        # if self.settings["auto_reload"][0].get():
-        #     self.resortImageList()
         self.imageUpdate("Undo operation")
 
 
