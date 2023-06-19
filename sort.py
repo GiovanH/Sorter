@@ -305,6 +305,8 @@ class FileSorter(tk.Tk):
         lab_curfile = tk.Label(textvariable=self.str_curfile, height=2)
         lab_curfile.grid(row=0, column=1)
 
+        self.str_keepdir = tk.StringVar(value="keep")
+
         # Canvas stuff
         self.canvas = ContentCanvas(self, takefocus=True)
         self.canvas.grid(column=1, row=1, sticky="nsew")
@@ -440,6 +442,7 @@ class FileSorter(tk.Tk):
                 # No shared base, ignore
                 pass
 
+        self.working_root_path = newdir
         self.rootpath = newdir
         # self.generatePaths(newdir)
 
@@ -467,7 +470,7 @@ class FileSorter(tk.Tk):
                 path=path,
                 label=os.path.relpath(
                     path.lower(),
-                    self.rootpath
+                    self.working_root_path
                 ).replace('\\', '/')
             )
             for i, path in
@@ -605,7 +608,7 @@ class FileSorter(tk.Tk):
 
         # Exact match
         if query in folder_names:
-            return self.context_folders[folder_names.index(query)]
+            return [self.context_folders[folder_names.index(query)]]
 
         if query != "":
             # There is not a perfect mapping
@@ -644,6 +647,7 @@ class FileSorter(tk.Tk):
         # Put images in same-level directories
         has_sub_dirs = glob.glob(os.path.join(root_path, "*", ""))
         working_root_path = (root_path if has_sub_dirs else parent_path)
+        self.working_root_path = working_root_path
 
         # Candidate folders: folders in root_path
         self.contextglobs = [
@@ -651,9 +655,9 @@ class FileSorter(tk.Tk):
         ]
 
         # Candidate folders: "up" folder (of root OR parent)
-        self.contextglobs.append(
-            os.path.join(glob.escape(working_root_path), "..", "")
-        )
+        # self.contextglobs.append(
+        #     os.path.join(glob.escape(working_root_path), "..", "")
+        # )
 
         if self.settings["parent_dirs"].var.get() or not has_sub_dirs:
             self.contextglobs.append(os.path.join(glob.escape(parent_path), "*", ""))
@@ -669,6 +673,10 @@ class FileSorter(tk.Tk):
             self.contextglobs.append(
                 os.path.join(glob.escape(working_root_path), "*", "*", "")
             )
+            if self.settings["parent_dirs"].var.get():
+                self.contextglobs.append(
+                    os.path.join(glob.escape(parent_path), "*", "*", "")
+                )
 
         logger.info("Context globs: %s", self.contextglobs)
         self.newFolderRoot = working_root_path  # Where we make new folders
@@ -730,8 +738,8 @@ class FileSorter(tk.Tk):
         Args:
             event (None, optional): Description
         """
-        print("keepimage")
-        keepdir = os.path.join("keep", os.path.split(self.rootpath)[1])
+        keepdir = os.path.join(self.str_keepdir.get(), os.path.split(self.rootpath)[1])
+        print("keepimage", keepdir)
         self.spool.enqueue(self.moveToFolder, (), dict(new_folder_name=keepdir))
 
     def addUnsortedToBase(self):
