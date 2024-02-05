@@ -1,6 +1,9 @@
 import tkinter as tk
 from tkinter import ttk
 
+# from .sort import FileSorter
+
+from typing import *
 
 class SidebarFrame(tk.Frame):
 
@@ -9,7 +12,7 @@ class SidebarFrame(tk.Frame):
 
     # Init and window management
 
-    def __init__(self, parent, submitCallback, *args, **kwargs):
+    def __init__(self, parent, submitCallback: Callable[..., None], *args, **kwargs) -> None:
         """Args:
             parent (tk): Tk parent widget
             *args: Passthrough
@@ -18,20 +21,21 @@ class SidebarFrame(tk.Frame):
         tk.Frame.__init__(self, *args, **kwargs)
 
         self.controller = parent
-        self.submit = submitCallback
+
+        self.submit: Callable[..., None] = submitCallback
         # Initialize window
         self.initwindow()
 
-    def reFocusEntry(self):
+    def reFocusEntry(self) -> None:
         self.entry.delete(0, last=tk.END)
         self.entry.focus()
 
-    def initwindow(self):
+    def initwindow(self) -> None:
         """Initialize widgets
         """
         inOrderRow = 0
 
-        def rowInOrder():
+        def rowInOrder() -> int:
             """Helper function to increment in-order elements"""
             nonlocal inOrderRow
             inOrderRow += 1
@@ -47,10 +51,10 @@ class SidebarFrame(tk.Frame):
         )
         btn_ref.grid(row=rowInOrder(), sticky="WE")
 
-        btn_back = ttk.Button(self, text="Prev", takefocus=False, command=self.controller.prevImage)
-        btn_back.grid(row=rowInOrder(), sticky=tk.W)
-        btn_skip = ttk.Button(self, text="Skip", takefocus=False, command=self.controller.nextImage)
-        btn_skip.grid(row=inOrderRow, sticky=tk.E)
+        # btn_back = ttk.Button(self, text="Prev", takefocus=False, command=self.controller.prevImage)
+        # btn_back.grid(row=rowInOrder(), sticky=tk.W)
+        # btn_skip = ttk.Button(self, text="Skip", takefocus=False, command=self.controller.nextImage)
+        # btn_skip.grid(row=inOrderRow, sticky=tk.E)
 
         def highlightEntry(parent):
             """Quick factory for entries that highlight"""
@@ -100,6 +104,14 @@ class SidebarFrame(tk.Frame):
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(inOrderRow, weight=1)
+
+
+
+        self.strv_prev_query = tk.StringVar(value="<None>")
+        ttk.Label(self, text="Ctrl+. to repeat:").grid(row=rowInOrder())
+        ttk.Label(self, textvariable=self.strv_prev_query).grid(row=rowInOrder())
+        self.entry.bind("<Control-period>", self.doRepeat)
+        # self.entry.bind("<Control-slash>", self.doRepeat)
 
         settings_popup = tk.Menu(self, tearoff=0)
 
@@ -151,6 +163,9 @@ class SidebarFrame(tk.Frame):
         self.controller.sorter = self.controller.sortkeys[event.widget.get()]
         self.controller.resortImageList()
         # self.config(state=tk.NORMAL)
+
+    def doRepeat(self, event):
+        self.controller.doRepeat()
 
     def processEntryInput(self, event):
         """Process entry input, handling element styling and possible automatic submission.
