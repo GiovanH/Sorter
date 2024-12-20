@@ -3,7 +3,8 @@ from tkinter import ttk
 
 # from .sort import FileSorter
 
-from typing import *
+from typing import Callable
+
 
 class SidebarFrame(tk.Frame):
 
@@ -105,8 +106,6 @@ class SidebarFrame(tk.Frame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(inOrderRow, weight=1)
 
-
-
         self.strv_prev_query = tk.StringVar(value="<None>")
         ttk.Label(self, text="Ctrl+. to repeat:").grid(row=rowInOrder())
         ttk.Label(self, textvariable=self.strv_prev_query).grid(row=rowInOrder())
@@ -127,7 +126,7 @@ class SidebarFrame(tk.Frame):
         btn_settings = ttk.Button(self, text="Settings", takefocus=False)
         btn_settings.bind("<Button-1>", lambda event: settings_popup.tk_popup(event.x_root, event.y_root, 0))
         btn_settings.grid(row=rowInOrder(), sticky=tk.EW)
-        self.combobox_sorter = ttk.Combobox(self, state="readonly", takefocus=False, values=[name for name in self.controller.sortkeys.keys()])
+        self.combobox_sorter = ttk.Combobox(self, state="readonly", takefocus=False, values=[*self.controller.sortkeys.keys()])
         self.combobox_sorter.bind("<<ComboboxSelected>>", self.on_adjust_sort)
         self.combobox_sorter.grid(row=rowInOrder(), sticky="WE")
 

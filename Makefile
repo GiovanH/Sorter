@@ -1,4 +1,4 @@
-PYTHON=py -3.7
+PYTHON=py
 
 exec_targets=\
 	sort.exe
@@ -15,6 +15,8 @@ exe: $(addprefix bin/,${exec_targets})
 
 bin/%.exe: %.py
 	mkdir -p bin
+	${PYTHON} -m pip install -r requirements.txt
+	${PYTHON} -m pip install PyInstaller
 	${PYTHON} -m PyInstaller \
 		--onefile \
 		--console \

@@ -1,0 +1,3 @@
+[submodule "pysnip"]
+	path = pysnip
+	url = git@github.com:GiovanH/pysnip.git

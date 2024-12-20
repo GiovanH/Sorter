@@ -27,8 +27,8 @@ from snip.tkit.contentcanvas import ContentCanvas
 
 from typing import *
 
-IMAGEEXTS = ["png", "jpg", "bmp", "jpeg", "tif", "jfif", "tga", "pdn", "psd", "gif", "gifv"]
-VIDEOEXTS = ["webm", "mp4", "mov", "webp"]
+IMAGEEXTS = ["png", "jpg", "bmp", "jpeg", "tif", "jfif", "tga", "webp", "gif", "gifv"]
+VIDEOEXTS = ["webm", "mp4", "mov", "flv"]
 _IMAGEEXTS = ["*." + e for e in IMAGEEXTS]
 _VIDEOEXTS = ["*." + e for e in VIDEOEXTS]
 MATCHEXTS = IMAGEEXTS + VIDEOEXTS
@@ -261,7 +261,7 @@ class FileSorter(tk.Tk):
                 )
                 for (name, keyfunc) in [
                     ("Alphabetical", str.lower,),
-                    ("Integers", lambda f: int(os.path.splitext(os.path.split(f)[1])[0]) if os.path.splitext(os.path.split(f)[1])[0].isnumeric() else -1),
+                    ("Integers", lambda f: list(map(int, re.findall(r'\d+', os.path.splitext(os.path.split(f)[1])[0])))[0]),
                     ("File size", os.path.getsize,),
                     ("Last modified", os.path.getmtime,),
                     ("File type", lambda f: os.path.splitext(f)[1],),
@@ -528,10 +528,10 @@ class FileSorter(tk.Tk):
         if entry == "" or entry is None:
             self.nextImage()
             return
-        
+
         assert isinstance(entry, str)
 
-        
+
         if not isinstance(self.currentImagePath, str):
             raise ValueError("Not currently vising an image")
 
@@ -638,7 +638,7 @@ class FileSorter(tk.Tk):
                 for result in
                 getMatches(query, folder_names, fuzzy=self.settings["fuzzy"].var.get()).all
             ]
-    
+
         return []
 
     def generatePaths(self, root_path):
@@ -783,7 +783,7 @@ class FileSorter(tk.Tk):
         """
         if self.currentImagePath is None:
             raise ValueError("Cannot delete; no image selected!")
-        
+
         file_to_delete: str = self.currentImagePath
 
         confirmed = preconfirmed or messagebox.askyesno(
@@ -817,7 +817,7 @@ class FileSorter(tk.Tk):
 
         if self.currentImagePath is None:
             raise ValueError("Cannot do prefix rename; no image selected!")
-        
+
         old_file_path: str = self.currentImagePath
         old_file_dir, old_file_name = os.path.split(old_file_path)
         old_plain, old_ext = os.path.splitext(old_file_name)
@@ -840,7 +840,7 @@ class FileSorter(tk.Tk):
         """
         if self.currentImagePath is None:
             raise ValueError("Cannot rename; no image selected!")
-        
+
         old_file_path: str = self.currentImagePath
         old_filename, old_ext = os.path.splitext(old_file_path)
 
