@@ -1,31 +1,30 @@
-import tkinter as tk
-
-from snip import loom
-from snip.stream import TriadLogger
-
-from PIL import Image
-from tkinter import filedialog
-from tkinter import messagebox
-
 import os
 
 import glob
 
 import argparse
-
-import pymaybe
-
-import snip
 import random
 import functools
 import collections
 import itertools
 import re
 
-import sbf
-from snip.tkit.contentcanvas import ContentCanvas
+import tkinter as tk
 
-from typing import *
+from pysnip.snip import loom
+from pysnip.snip.stream import TriadLogger
+from pysnip.snip.tkit.contentcanvas import ContentCanvas
+from pysnip.snip import filesystem
+
+from PIL import Image
+from tkinter import filedialog
+from tkinter import messagebox
+
+import pymaybe
+
+import sbf
+
+from typing import Callable, Any, Optional, Union
 
 IMAGEEXTS = ["png", "jpg", "bmp", "jpeg", "tif", "jfif", "tga", "webp", "gif", "gifv"]
 VIDEOEXTS = ["webm", "mp4", "mov", "flv"]
@@ -51,10 +50,10 @@ def imageSize(filepath) -> int:
         w, h = Image.open(filepath).size
         return w * h
     except FileNotFoundError:
-        logger.warning("WARNING! File not found: ", filepath)
+        logger.warning("WARNING! File not found: " + filepath)
         return 0
     except OSError:
-        logger.warning("WARNING! OS error with file: ", filepath)
+        logger.warning("WARNING! OS error with file: " + filepath)
         return 0
 
 
@@ -219,7 +218,7 @@ class FileSorter(tk.Tk):
         undo (list): Stack of functions to process via ctrl+z
     """
 
-    def __init__(self, rootpath, image_ext_globs, *args, **kwargs):
+    def __init__(self, rootpath, image_ext_globs, *args, **kwargs) -> None:
         """File sorter main window
         Passthrough to tk.Tk
 
@@ -238,7 +237,7 @@ class FileSorter(tk.Tk):
             self.prev_query: Optional[str] = None
 
             self.spool = loom.Spool(1, "Sort misc")
-            self.trash = snip.filesystem.Trash(verbose=True, queue_size=MAX_TRASH_HISTORY)
+            self.trash = filesystem.Trash(verbose=True, queue_size=MAX_TRASH_HISTORY)
 
             def userBoolSettingFactory(label, **kwargs):
                 return UserBoolSetting(var=tk.BooleanVar(**kwargs), label=label)
@@ -382,7 +381,7 @@ class FileSorter(tk.Tk):
         if can_do_cleanup:
             for oldfile in loose_files:
                 try:
-                    snip.filesystem.moveFileToDir(oldfile, destpath)
+                    filesystem.moveFileToDir(oldfile, destpath)
                 except FileExistsError:
                     pass
 
@@ -571,10 +570,10 @@ class FileSorter(tk.Tk):
             (old_file_dir, old_file_name) = os.path.split(old_file_path)
             new_file_path: str = os.path.join(destination_dir, old_file_name)
 
-            snip.filesystem.moveFileToFile(old_file_path, destination_dir)
+            filesystem.moveFileToFile(old_file_path, destination_dir)
 
             def _undo(self) -> None:
-                snip.filesystem.moveFileToFile(new_file_path, old_file_path)
+                filesystem.moveFileToFile(new_file_path, old_file_path)
                 self.filepaths.insert(old_index, old_file_path)
             self.undo.append(_undo)
 
@@ -849,7 +848,7 @@ class FileSorter(tk.Tk):
         if os.path.isfile(output_file_path):
             if self.settings["confident"].var.get():
                 logger.info("Renaming conflicting file '%s'", output_file_path)
-                snip.filesystem.renameFileOnly(output_file_path, new_file_name + "_displaced")
+                filesystem.renameFileOnly(output_file_path, new_file_name + "_displaced")
             else:
                 stem, ext = os.path.splitext(new_file_name)
                 style = f"{stem} (<#>)"
@@ -862,9 +861,9 @@ class FileSorter(tk.Tk):
                 assert not os.path.isfile(output_file_path)
         try:
             logger.info(f"{old_file_path} -> {new_file_name}")
-            snip.filesystem.renameFileOnly(old_file_path, new_file_name)
+            filesystem.renameFileOnly(old_file_path, new_file_name)
             self.undo.append(
-                lambda s: snip.filesystem.renameFileOnly(
+                lambda s: filesystem.renameFileOnly(
                     output_file_path,
                     old_file_name
                 ))
@@ -898,12 +897,12 @@ class FileSorter(tk.Tk):
                 self.reloadDirContext()
 
             old_folder, old_filename = os.path.split(old_file_path)
-            snip.filesystem.moveFileToDir(old_file_path, newdir)
+            filesystem.moveFileToDir(old_file_path, newdir)
 
             # self.deleted_images_count += 1
             # TODO: Technically, this undo should decrement the deleted images count? Requires a rewrite.
             self.undo.append(
-                lambda self: snip.filesystem.moveFileToFile(
+                lambda self: filesystem.moveFileToFile(
                     os.path.join(newdir, old_filename), old_file_path
                 )
             )
@@ -946,7 +945,7 @@ def main():
         ap.add_argument(
             "-b", "--base",
             help="Root folder. Should contain folders, one of which can be named unsorted.",
-            default=snip.filesystem.userProfile("Downloads"))
+            default=filesystem.userProfile("Downloads"))
         ap.add_argument(
             "-e", "--extensions", nargs='+', default=_MATCHEXTS,
             help="Substrings in the path to penalize during file sorting.")
