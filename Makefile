@@ -1,4 +1,4 @@
-PYTHON=py
+PYTHON=python3
 
 exec_targets=\
 	sort.exe

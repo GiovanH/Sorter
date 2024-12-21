@@ -1,7 +1,7 @@
-git+git@github.com:GiovanH/python-loom.git
+git+https://github.com/GiovanH/python-loom.git
 imagehash
 opencv-python
 pillow
 pymaybe
 send2trash
-win32clipboard
+pywin32

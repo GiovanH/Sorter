@@ -16,6 +16,7 @@ import collections
 import math
 import zipfile
 import threading
+import traceback
 
 import typing
 import functools
@@ -57,11 +58,11 @@ def autoRotate(image):
             if not exif.get(orientation):
                 continue
 
-            if exif[orientation] == 3:
+            if exif[orientation] == 3:  # noqa: PLR2004
                 return image.rotate(180, expand=True)
-            elif exif[orientation] == 6:
+            elif exif[orientation] == 6:  # noqa: PLR2004
                 return image.rotate(270, expand=True)
-            elif exif[orientation] == 8:
+            elif exif[orientation] == 8:  # noqa: PLR2004
                 return image.rotate(90, expand=True)
     except (KeyError, AttributeError):
         pass
@@ -69,13 +70,13 @@ def autoRotate(image):
     return image
 
 
-def bytes_to_string(bytes, units=['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'], sep="", base=1024):
+def bytes_to_string(value: int, units=('B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'), sep="", base=1024) -> str:
     """ Returns a human readable string reprentation of bytes."""
     # Adapted from a comment by "Mr. Me" on github.
-    if bytes < base:
-        return "{:0.2f}{}{}".format(bytes, sep, units[0])
+    if value < base:
+        return "{:0.2f}{}{}".format(value, sep, units[0])
     else:
-        return bytes_to_string(bytes / base, units[1:], sep=sep)
+        return bytes_to_string(value / base, units[1:], sep=sep)
 
 
 def send_to_clipboard(clip_type, data) -> None:
@@ -153,7 +154,7 @@ class ContentCanvas(tk.Canvas):
         except ImportError:
             logger.error("Clipboard support ('win32clipboard') not available.")
         popup.add_separator()
-        popup.add_command(label="Open", command=lambda: os.startfile(self.current_file))
+        popup.add_command(label="Open", command=lambda: os.startfile(self.current_file))  # noqa: S606
         popup.add_command(label="Open file location", command=self.open_file_location)
         popup.add_separator()
         popup.add_command(label="Save a copy", command=self.save_a_copy)
@@ -180,19 +181,19 @@ class ContentCanvas(tk.Canvas):
             subprocess.run([FILEBROWSER_PATH, '/select,', os.path.normpath(path)])
 
     def save_a_copy(self) -> None:
-        newFileName = filedialog.asksaveasfilename(
+        new_file_name = filedialog.asksaveasfilename(
             initialfile=os.path.basename(self.current_file)
         )
-        filesystem.copyFileToFile(self.current_file, newFileName)
-        logger.info(f"{self.current_file} -> {newFileName}")
+        filesystem.copyFileToFile(self.current_file, new_file_name)
+        logger.info(f"{self.current_file} -> {new_file_name}")
 
-    def quicksave(self, event=None) -> None:
+    def quicksave(self, event=None) -> None:  # noqa: ARG002
         downloads = filesystem.userProfile("Pictures")
         filesystem.copyFileToDir(self.current_file, downloads)
         logger.info(f"{self.current_file} -> {downloads}")
         self.bell()
 
-    def onResize(self, configure_event):
+    def onResize(self, configure_event):  # noqa: ARG002
         # self.markAllDirty()
         # We don't need to mark text dirty
         # logger.debug("Clearing photoimage cache (window resized)")
@@ -257,7 +258,7 @@ class ContentCanvas(tk.Canvas):
 
         self.curimg: typing.Optional[ImageTk.PhotoImage] = None
 
-        (filename_, fileext) = os.path.splitext(filepath)
+        (_filename, fileext) = os.path.splitext(filepath)
         if fileext.lower() in _IMAGEEXTS or fileext.lower() in _VIDEOEXTS:
             self.curimg = self.makePhotoImage(filepath)
             self.itemconfig(self.photoimage, image=self.curimg, state="normal")
@@ -275,11 +276,13 @@ class ContentCanvas(tk.Canvas):
         for filepath in filepaths:
             if filepath not in self.photoImageCache.keys():
                 # print("Path", filepath, "missing from cache", self.photoImageCache.keys())
+                target_path: str = filepath
+
                 def _do():
                     self.spool.enqueue(
                         target=self.makePhotoImage,
                         args=(
-                            filepath,
+                            target_path,
                             self.winfo_width(),
                             self.winfo_height(),
                         )
@@ -292,7 +295,7 @@ class ContentCanvas(tk.Canvas):
             text += f"\nPath:\t{filepath}"
             text += f"\nSize:\t{bytes_to_string(os.path.getsize(filepath))}"
 
-            filename, fileext = os.path.splitext(filepath)
+            _filename, fileext = os.path.splitext(filepath)
             if fileext.lower() == ".pdf":
                 try:
                     # from pdfminer.pdfparser import PDFParser
@@ -378,7 +381,7 @@ class ContentCanvas(tk.Canvas):
 
             prettyname = f"{filename}\n{filesize}"  # Fallback 1
 
-            (filename_, fileext) = os.path.splitext(filename)
+            (_filename, fileext) = os.path.splitext(filename)
 
             # Get initial image
             if fileext.lower() in _IMAGEEXTS:
@@ -406,7 +409,7 @@ class ContentCanvas(tk.Canvas):
 
         except (OSError, cv2.error, UnidentifiedImageError):
             logger.error("OS error while getting file info", exc_info=True)
-            pass
+
         return prettyname
 
     def makePhotoImage(self, filename, ALWAYS_RESIZE=True, stepsize=4) -> typing.Optional[ImageTk.PhotoImage]:
@@ -437,7 +440,7 @@ class ContentCanvas(tk.Canvas):
             # logger.debug(f"photoimage cache hit for filename '{filename}'")
             return ImageTk.PhotoImage(pilimg)
 
-        (filename_, fileext) = os.path.splitext(filename)
+        (_filename, fileext) = os.path.splitext(filename)
 
         # Get initial image
         try:
@@ -448,7 +451,7 @@ class ContentCanvas(tk.Canvas):
             elif fileext.lower() in _VIDEOEXTS:
                 capture = cv2.VideoCapture(filename)
                 capture.grab()
-                flag, frame = capture.retrieve()
+                _flag, frame = capture.retrieve()
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pilimg = Image.fromarray(frame)
             else:
@@ -461,9 +464,9 @@ class ContentCanvas(tk.Canvas):
 
         # Resize image to canvas
         ratio = 1.0
-        imageIsTooBig = (pilimg.width > maxwidth) or (pilimg.height > maxheight)
+        image_is_too_big: bool = (pilimg.width > maxwidth) or (pilimg.height > maxheight)
 
-        if imageIsTooBig:
+        if image_is_too_big:
             ratio = min(maxwidth / pilimg.width, maxheight / pilimg.height)
             method: Image.Resampling = Image.Resampling.BICUBIC
         else:
@@ -509,7 +512,6 @@ class ContentCanvas(tk.Canvas):
                 ImageDraw.Draw(pilimg).rectangle([(0, 0), (30, 14)], fill=(0, 0, 0))
                 ImageDraw.Draw(pilimg).text((2, 2), str(framesInImage(filename)), fill=(255, 255, 255))
         except ValueError:
-            import traceback
             traceback.print_exc()
             # pilimg = pilimg
 

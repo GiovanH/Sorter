@@ -15,6 +15,7 @@ from PIL import Image
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
+from tkinter.simpledialog import askstring
 
 import loom
 
@@ -25,6 +26,7 @@ import sbf
 from contentcanvas import ContentCanvas
 
 from typing import Callable, Any, Optional, Union
+import operator
 
 IMAGEEXTS = ["png", "jpg", "bmp", "jpeg", "tif", "jfif", "tga", "webp", "gif", "gifv"]
 VIDEOEXTS = ["webm", "mp4", "mov", "flv"]
@@ -34,11 +36,14 @@ MATCHEXTS = IMAGEEXTS + VIDEOEXTS
 _MATCHEXTS = _IMAGEEXTS + _VIDEOEXTS
 
 MAX_TRASH_HISTORY = 32
+
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 FolderOption = collections.namedtuple("FolderOption", ["path", "label", "index"])
 UserBoolSetting = collections.namedtuple("UserBoolSetting", ["var", "label"])
 MatchResults = collections.namedtuple("MatchResults", ["all", "resolved", "unique"])
+
 
 def imageSize(filepath) -> int:
     """
@@ -65,7 +70,7 @@ def md5(path) -> str:
         str: MD5 hex digest
     """
     with open(path, 'rb') as afile:
-        h = hashlib.md5()
+        h = hashlib.md5()  # noqa: S324
         h.update(afile.read())
         return h.hexdigest()
 
@@ -151,13 +156,13 @@ def getMatches(query, collection, split_regex=r'[\\ /_-]', fuzzy=False) -> Match
     grouped_item_segs: list[tuple[Any, list[str]]] = [(item, segs(item)) for item in collection]
 
     def lenSegmentsKey(is_):
-        item, item_segs = is_
+        _item, item_segs = is_
         return len(item_segs)
 
     grouped_item_segs.sort(key=lenSegmentsKey)
 
-    def addSegmentMatches(matchFn):
-        """Adds matches based on matchFn(theirs, ours): segmentMatches[True, False]"""
+    def addSegmentMatches(match_fn: Callable[[str, str], bool]):
+        """Adds matches based on match_fn(theirs, ours): segmentMatches[True, False]"""
         for item, item_segs in grouped_item_segs:
             if item in matches:
                 continue
@@ -168,7 +173,7 @@ def getMatches(query, collection, split_regex=r'[\\ /_-]', fuzzy=False) -> Match
                     ([''] * offset) + query_segs,
                     fillvalue=''
                 )]
-                passes_test = all(matchFn(theirs, ours) for (theirs, ours) in zipped)
+                passes_test = all(match_fn(theirs, ours) for (theirs, ours) in zipped)
                 # print(item, list(zipped), offset, offsetize, passes_test)
                 if passes_test:
                     matches.append(item)
@@ -248,8 +253,8 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
                 "aggressive": userBoolSettingFactory("Automatically process on unambigious input"),
                 "auto_reload": userBoolSettingFactory("Reload on change", value=True)
             }
-            self.settings["parent_dirs"].var.trace("w", lambda *a: self.reloadDirContext())
-            self.settings["recursive"].var.trace("w", lambda *a: self.reloadDirContext())
+            self.settings["parent_dirs"].var.trace("w", lambda *a: self.reloadDirContext())  # noqa: ARG005
+            self.settings["recursive"].var.trace("w", lambda *a: self.reloadDirContext())  # noqa: ARG005
 
             self.sortkeys: dict[str, Callable] = {
                 "{}, {}".format(name, order): (
@@ -257,7 +262,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
                 )
                 for (name, keyfunc) in [
                     ("Alphabetical", str.lower),
-                    ("Integers", lambda f: list(map(int, re.findall(r'\d+', os.path.splitext(os.path.split(f)[1])[0])))[0]),
+                    ("Integers", lambda f: next(map(int, re.findall(r'\d+', os.path.splitext(os.path.split(f)[1])[0])))),
                     ("File size", os.path.getsize),
                     ("Last modified", os.path.getmtime),
                     ("File type", lambda f: os.path.splitext(f)[1]),
@@ -265,7 +270,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
                     ("Image Height", lambda f: pymaybe.maybe(Image.open(f)).size[1].or_else(0)),  # type: ignore
                     ("Image Width", lambda f: pymaybe.maybe(Image.open(f)).size[0].or_else(0)),  # type: ignore
                     ("Procedural hash", fingerprintImage),
-                    ("Random", lambda f: random.random())
+                    ("Random", lambda f: random.random())  # noqa: ARG005
                 ]
                 for (order, orderb) in [
                     ("asc", False), ("desc", True)
@@ -339,7 +344,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
         self.frame_sidebar = sbf.SidebarFrame(
             self,
-            submitCallback=self.submit
+            submit_callback=self.submit
         )
         self.frame_sidebar.config(bd=3, relief=tk.RIDGE)
         self.frame_sidebar.grid(row=0, rowspan=2, column=0, sticky="NSEW")
@@ -357,14 +362,15 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
         self.str_curfile.set(prettyname)
 
-    def promptLooseCleanup(self, rootpath, destpath):
+    def promptLooseCleanup(self, rootpath: str, destpath: str):
         """Check if there are files in rootpath, and offer to move them to destpath.
         """
-        assert os.path.isdir(rootpath)
-        assert os.path.isdir(destpath)
+        if not (os.path.isdir(rootpath) and os.path.isdir(destpath)):
+            raise ValueError("Cleanup paths are not directories")
 
         imageglobs = [os.path.join(glob.escape(rootpath), ext) for ext in self.image_ext_globs]
-        loose_files = list(filter(self.trash.isfile, sum([glob.glob(a) for a in imageglobs], [])))
+        all_globs: list[str] = functools.reduce(operator.iadd, [glob.glob(a) for a in imageglobs], [])
+        loose_files = list(filter(self.trash.isfile, all_globs))
 
         num_loose_files = len(loose_files)
         if num_loose_files == 0:
@@ -402,9 +408,10 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         """
         logger.debug(self.image_ext_globs)
         if not newmatchglobs:
-            from tkinter.simpledialog import askstring
+
             newmatchglobs = askstring("Filter", "Enter new globs seperated by ', '", initialvalue=", ".join(self.image_ext_globs))
-            assert isinstance(newmatchglobs, str)
+            if not isinstance(newmatchglobs, str):
+                return
 
         logger.debug(newmatchglobs)
 
@@ -432,7 +439,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
             self.update_idletasks()  # Bug with tkinter: the mainloop must loop before calling filedialog
             newdir = filedialog.askdirectory(initialdir=self.rootpath)
             # Check for "cancel" state
-            if newdir is None or newdir == '':
+            if newdir is None or newdir == '':  # noqa: PLC1901
                 return
             newdir = os.path.realpath(newdir)
             try:
@@ -475,7 +482,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
             )
             for i, path in
             enumerate(sorted(
-                sum([glob.glob(a, recursive=True) for a in self.contextglobs], [])
+                functools.reduce(operator.iadd, [glob.glob(a, recursive=True) for a in self.contextglobs], [])
             ))
         ]
         self.updateContextListFrame()
@@ -489,7 +496,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         self.filepaths = self.sorter(
             filter(
                 self.trash.isfile,  # Only non-deleted paths, according to our trash
-                sum([glob.glob(a) for a in self.imageglobs], [])
+                functools.reduce(operator.iadd, [glob.glob(a) for a in self.imageglobs], [])
             )
         )
 
@@ -521,12 +528,12 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
             widget = self.frame_sidebar.entry
             # assert isinstance(entry, str)
 
-        if entry == "" or entry is None:
+        if entry == "" or entry is None:  # noqa: PLC1901
             self.nextImage()
             return
 
-        assert isinstance(entry, str)
-
+        if not isinstance(entry, str):
+            raise ValueError(entry)
 
         if not isinstance(self.currentImagePath, str):
             raise ValueError("Not currently vising an image")
@@ -558,13 +565,13 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
             destination_dir = usubdir
 
         if not os.path.isdir(destination_dir):
-            logger.error("In an invalid state:", destination_dir, "is not a directory")
+            logger.error(f"In an invalid state: {destination_dir} is not a directory")
             self.reloadDirContext()
             return
         old_index = self.filepaths.index(old_file_path)
 
         def doMove() -> None:
-            (old_file_dir, old_file_name) = os.path.split(old_file_path)
+            (_old_file_dir, old_file_name) = os.path.split(old_file_path)
             new_file_path: str = os.path.join(destination_dir, old_file_name)
 
             filesystem.moveFileToFile(old_file_path, destination_dir)
@@ -607,7 +614,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         if len(best_folder_list) == 1:
             return best_folder_list[0]
         else:
-            raise EnvironmentError("Ambiguous folder selected, could be any of: {}".format(best_folder_list))
+            raise EnvironmentError(f"Ambiguous folder selected, could be any of: {best_folder_list}")
 
     def getBestFolders(self, entry: str) -> list[FolderOption]:
         """Finds folders that match the search term
@@ -627,7 +634,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         if query in folder_names:
             return [self.context_folders[folder_names.index(query)]]
 
-        if query != "":
+        if query != "":  # noqa: PLC1901
             # There is not a perfect mapping
             return [
                 self.context_folders[folder_names.index(result)]
@@ -700,13 +707,13 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         logger.info("Context globs: %s", self.contextglobs)
         self.newFolderRoot = working_root_path  # Where we make new folders
 
-    def nextImage(self, event=None):
+    def nextImage(self, event=None):  # noqa: ARG002
         """Show the next image
         """
         self.image_index += 1
         self.imageUpdate("Next image")
 
-    def prevImage(self, event=None):
+    def prevImage(self, event=None):  # noqa: ARG002
         """Show the previous image
         """
         self.image_index -= 1
@@ -718,7 +725,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         self.image_index = int(float(index))
         self.imageUpdate("Seek")
 
-    def imageUpdate(self, event=None):
+    def imageUpdate(self, event=None):  # noqa: ARG002
         """Update widgets to reflect a new selected image
         """
 
@@ -751,7 +758,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
     # Disk action
 
-    def keepImage(self, event=None):
+    def keepImage(self, event=None):  # noqa: ARG002
         """Summary
 
         Args:
@@ -759,16 +766,16 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         """
         keepdir = os.path.join(self.str_keepdir.get(), os.path.split(self.rootpath)[1])
         print("keepimage", keepdir)
-        self.spool.enqueue(self.moveToFolder, (), dict(new_folder_name=keepdir))
+        self.spool.enqueue(self.moveToFolder, (), {"new_folder_name": keepdir})
 
     def addUnsortedToBase(self):
         os.makedirs(os.path.join(self.rootpath, "Unsorted"))
         self.openDir(os.path.realpath(self.rootpath))
 
-    def askDelete(self, event):
+    def askDelete(self, event):  # noqa: ARG002
         self.delete()
 
-    def fastDelete(self, event):
+    def fastDelete(self, event):  # noqa: ARG002
         self.delete(preconfirmed=True)
 
     def delete(self, preconfirmed=False) -> None:
@@ -807,7 +814,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
     def doPrefixRename(self, event) -> None:
         entry = event.widget.get()
-        if entry == "":
+        if entry == "":  # noqa: PLC1901
             self.nextImage()
             return
 
@@ -815,8 +822,8 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
             raise ValueError("Cannot do prefix rename; no image selected!")
 
         old_file_path: str = self.currentImagePath
-        old_file_dir, old_file_name = os.path.split(old_file_path)
-        old_plain, old_ext = os.path.splitext(old_file_name)
+        _old_file_dir, old_file_name = os.path.split(old_file_path)
+        old_plain, _old_ext = os.path.splitext(old_file_name)
 
         self._dorename(entry + '_' + old_plain)
         event.widget.delete(0, last=tk.END)
@@ -824,7 +831,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
     def dorename(self, event):
         """Rename current file."""
         entry = event.widget.get()
-        if entry == "":
+        if entry == "":  # noqa: PLC1901
             self.nextImage()
             return
 
@@ -838,7 +845,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
             raise ValueError("Cannot rename; no image selected!")
 
         old_file_path: str = self.currentImagePath
-        old_filename, old_ext = os.path.splitext(old_file_path)
+        _old_filename, old_ext = os.path.splitext(old_file_path)
 
         (old_file_dir, old_file_name) = os.path.split(old_file_path)
         output_file_path = os.path.join(old_file_dir, new_file_name + old_ext)
@@ -847,20 +854,22 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
                 logger.info("Renaming conflicting file '%s'", output_file_path)
                 filesystem.renameFileOnly(output_file_path, new_file_name + "_displaced")
             else:
-                stem, ext = os.path.splitext(new_file_name)
+                stem, _ext = os.path.splitext(new_file_name)
                 style = f"{stem} (<#>)"
                 i = 0
                 while os.path.isfile(output_file_path):
                     i += 1
                     new_file_name = style.replace('<#>', str(i))
                     output_file_path = os.path.join(old_file_dir, new_file_name + old_ext)
-                    assert i < 100
-                assert not os.path.isfile(output_file_path)
+                    if i > 100:  # noqa: PLR2004
+                        raise EnvironmentError("Too many renames")
+                if os.path.isfile(output_file_path):
+                    raise FileExistsError(output_file_path)
         try:
             logger.info(f"{old_file_path} -> {new_file_name}")
             filesystem.renameFileOnly(old_file_path, new_file_name)
             self.undo.append(
-                lambda s: filesystem.renameFileOnly(
+                lambda s: filesystem.renameFileOnly(  # noqa: ARG005
                     output_file_path,
                     old_file_name
                 ))
@@ -883,7 +892,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
             raise ValueError("Cannot move; no image selected!")
 
         old_file_path: str = self.currentImagePath
-        if new_folder_name == "":
+        if new_folder_name == "":  # noqa: PLC1901
             self.nextImage()
             self.frame_sidebar.reFocusEntry()
             return
@@ -893,13 +902,13 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
                 os.makedirs(newdir, exist_ok=True)
                 self.reloadDirContext()
 
-            old_folder, old_filename = os.path.split(old_file_path)
+            _old_folder, old_filename = os.path.split(old_file_path)
             filesystem.moveFileToDir(old_file_path, newdir)
 
             # self.deleted_images_count += 1
             # TODO: Technically, this undo should decrement the deleted images count? Requires a rewrite.
             self.undo.append(
-                lambda self: filesystem.moveFileToFile(
+                lambda self: filesystem.moveFileToFile(  # noqa: ARG005
                     os.path.join(newdir, old_filename), old_file_path
                 )
             )
@@ -923,7 +932,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
         # self.frame_sidebar.reFocusEntry()
 
-    def doUndo(self, event):
+    def doUndo(self, event):  # noqa: ARG002
         """Process an undo operation, handling the stack.
         """
         if len(self.undo) == 0:

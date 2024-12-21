@@ -13,7 +13,7 @@ class SidebarFrame(tk.Frame):
 
     # Init and window management
 
-    def __init__(self, parent, submitCallback: Callable[..., None], *args, **kwargs) -> None:
+    def __init__(self, parent, submit_callback: Callable[..., None], *args, **kwargs) -> None:
         """Args:
             parent (tk): Tk parent widget
             *args: Passthrough
@@ -23,7 +23,7 @@ class SidebarFrame(tk.Frame):
 
         self.controller = parent
 
-        self.submit: Callable[..., None] = submitCallback
+        self.submit: Callable[..., None] = submit_callback
         # Initialize window
         self.initwindow()
 
@@ -114,7 +114,7 @@ class SidebarFrame(tk.Frame):
 
         settings_popup = tk.Menu(self, tearoff=0)
 
-        for key, (var, label) in self.controller.settings.items():
+        for _key, (var, label) in self.controller.settings.items():
             settings_popup.add_checkbutton(label=label, variable=var)
 
         settings_popup.add_separator()
@@ -163,7 +163,7 @@ class SidebarFrame(tk.Frame):
         self.controller.resortImageList()
         # self.config(state=tk.NORMAL)
 
-    def doRepeat(self, event):
+    def doRepeat(self, event):  # noqa: ARG002
         self.controller.doRepeat()
 
     def processEntryInput(self, event):
