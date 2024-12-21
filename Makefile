@@ -13,6 +13,10 @@ clean:
 
 exe: $(addprefix bin/,${exec_targets})
 
+fake:
+	mkdir -p bin
+	touch bin/sort.exe
+
 bin/%.exe: %.py
 	mkdir -p bin
 	${PYTHON} -m pip install -r requirements.txt
