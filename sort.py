@@ -4,11 +4,11 @@ import logging
 import argparse
 import random
 import functools
-import collections
 import itertools
 import re
 import hashlib
 import imagehash
+from dataclasses import dataclass
 
 from PIL import Image
 
@@ -23,26 +23,47 @@ import pymaybe
 
 import filesystem
 import sbf
+import contentcanvas
 from contentcanvas import ContentCanvas
 
 from typing import Callable, Any, Optional, Union
 import operator
 
-IMAGEEXTS = ["png", "jpg", "bmp", "jpeg", "tif", "jfif", "tga", "webp", "gif", "gifv"]
-VIDEOEXTS = ["webm", "mp4", "mov", "flv"]
-_IMAGEEXTS = ["*." + e for e in IMAGEEXTS]
-_VIDEOEXTS = ["*." + e for e in VIDEOEXTS]
-MATCHEXTS = IMAGEEXTS + VIDEOEXTS
-_MATCHEXTS = _IMAGEEXTS + _VIDEOEXTS
+# IMAGEEXTS = ["png", "jpg", "bmp", "jpeg", "tif", "jfif", "tga", "webp", "gif", "gifv"]
+# VIDEOEXTS = ["webm", "mp4", "mov", "flv"]
+# _IMAGEEXTS = ["*." + e for e in IMAGEEXTS]
+# _VIDEOEXTS = ["*." + e for e in VIDEOEXTS]
+MATCHEXTS = contentcanvas.SUPPORTED_EXTS
+_MATCHEXTS = ["*." + e for e in MATCHEXTS]
 
 MAX_TRASH_HISTORY = 32
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-FolderOption = collections.namedtuple("FolderOption", ["path", "label", "index"])
-UserBoolSetting = collections.namedtuple("UserBoolSetting", ["var", "label"])
-MatchResults = collections.namedtuple("MatchResults", ["all", "resolved", "unique"])
+
+@dataclass
+class FolderOption:
+    path: str
+    label: str
+    index: int
+
+
+@dataclass
+class UserBoolSetting:
+    var: tk.BooleanVar
+    label: str
+
+
+@dataclass
+class MatchResults:
+    all: list[str]
+    resolved: Optional[str]
+    unique: bool
+
+# FolderOption = collections.namedtuple("FolderOption", ["path", "label", "index"])
+# UserBoolSetting = collections.namedtuple("UserBoolSetting", ["var", "label"])
+# MatchResults = collections.namedtuple("MatchResults", ["all", "resolved", "unique"])
 
 
 def imageSize(filepath) -> int:
@@ -76,32 +97,6 @@ def md5(path) -> str:
 
 
 @functools.lru_cache()
-def isImage(filepath) -> bool:
-    """
-    Returns:
-        bool: True if the path points to an image, else False.
-    """
-    try:
-        return os.path.splitext(filepath)[1].lower() in _IMAGEEXTS
-    except IndexError:
-        # No extension
-        return False
-
-
-@functools.lru_cache()
-def isVideo(filepath) -> bool:
-    """
-    Returns:
-        bool: True if the path points to an video, else False.
-    """
-    try:
-        return os.path.splitext(filepath)[1].lower() in _VIDEOEXTS
-    except IndexError:
-        # No extension
-        return False
-
-
-@functools.lru_cache()
 def fingerprintImage(image_path) -> str:
     """
     Returns:
@@ -114,10 +109,6 @@ def fingerprintImage(image_path) -> str:
         logger.error("Can't fingerprint %s", image_path, exc_info=True)
         proc_hash = md5(image_path)
     return proc_hash
-
-
-def cacheClearAll():
-    fingerprintImage.cache_clear()
 
 
 @functools.lru_cache()
@@ -231,12 +222,17 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         super(FileSorter, self).__init__(*args, **kwargs)
 
         try:
-            self.image_index = 0
+            self.image_index: int = 0
             self.undo: list[Callable] = []
             self.filepaths: list[str] = []
             self.image_ext_globs: list[str] = image_ext_globs
 
             self.prev_query: Optional[str] = None
+
+            self.contextglobs: list[str] = []
+            self.context_folders: list[FolderOption]
+            self.working_root_path: str
+            self.rootpath: str
 
             self.spool = loom.Spool(1, "Sort misc")
             self.trash = filesystem.Trash(verbose=True, queue_size=MAX_TRASH_HISTORY)
@@ -277,7 +273,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
                 ]
             }
 
-            self.sorter = sorted
+            self.sorter: Callable = sorted
 
             self.initwindow()
             self.openDir(rootpath)
@@ -290,7 +286,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
     # Windowing and GUI
 
-    def destroy(self):
+    def destroy(self) -> None:
         """Summary
         """
         self.spool.finish()
@@ -351,7 +347,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
         self.columnconfigure(0, minsize=160)
 
-    def updateLabelFileName(self):
+    def updateLabelFileName(self) -> None:
         """Generate a user-friendly filename for the header and set str_curfile.
         """
         if self.currentImagePath is None:
@@ -362,7 +358,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
         self.str_curfile.set(prettyname)
 
-    def promptLooseCleanup(self, rootpath: str, destpath: str):
+    def promptLooseCleanup(self, rootpath: str, destpath: str) -> None:
         """Check if there are files in rootpath, and offer to move them to destpath.
         """
         if not (os.path.isdir(rootpath) and os.path.isdir(destpath)):
@@ -388,7 +384,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
                 except FileExistsError:
                     pass
 
-    def updateContextListFrame(self):
+    def updateContextListFrame(self) -> None:
         """Generate and refresh the sidebar listbox"""
         # Reset and clear
         self.frame_sidebar.listbox_context.configure(state=tk.NORMAL)
@@ -420,13 +416,13 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         self.imageUpdate()
 
     @property
-    def currentImagePath(self):
+    def currentImagePath(self) -> Optional[str]:
         if len(self.filepaths) == 0:
             return None
         self.image_index = self.image_index % len(self.filepaths)
         return self.filepaths[self.image_index]
 
-    def openDir(self, newdir=None):
+    def openDir(self, newdir=None) -> None:
         """Open a new directory and prepare window
 
         Args:
@@ -462,33 +458,34 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         # Initialize data
         self.reloadDirContext()
 
-        self.frame_sidebar.progbar_prog.configure(max=(len(self.filepaths) - 1))
+        self.frame_sidebar.progbar_prog.configure(maximum=(len(self.filepaths) - 1))
         # Just reloaded, so current length is max
         self.frame_sidebar.progbar_seek.configure(to=len(self.filepaths))
 
-    def reloadDirContext(self):
+    def reloadDirContext(self) -> None:
         """Reload globs, keys, and context for our directory.
         """
         self.generatePaths(self.rootpath)
 
+        dir_path_enum: enumerate[str] = enumerate(sorted(
+            functools.reduce(operator.iadd, [glob.glob(a, recursive=True) for a in self.contextglobs], [])
+        ))
         self.context_folders = [
             FolderOption(
                 index=i,
-                path=path,
+                path=dir_path,
                 label=os.path.relpath(
-                    path.lower(),
+                    dir_path.lower(),
                     self.working_root_path
                 ).replace('\\', '/')
             )
-            for i, path in
-            enumerate(sorted(
-                functools.reduce(operator.iadd, [glob.glob(a, recursive=True) for a in self.contextglobs], [])
-            ))
+            for i, dir_path in
+            dir_path_enum
         ]
         self.updateContextListFrame()
         self.resortImageList()
 
-    def resortImageList(self):
+    def resortImageList(self) -> None:
         """Reload filepaths, rescan for images.
         """
         logger.info("Resorting image list")
@@ -504,13 +501,13 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
     # Generators and logic
 
-    def doRepeat(self):
+    def doRepeat(self) -> None:
         if self.prev_query:
             self.submit(entry=self.prev_query)
         else:
             raise ValueError("No prev_query defined!")
 
-    def submit(self, event: Optional[Any] = None, entry: Optional[str] = ""):
+    def submit(self, event: Optional[Any] = None, entry: Optional[str] = "") -> None:
         """Processing when the user submits the "move" entry
 
         Args:
@@ -644,7 +641,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
         return []
 
-    def generatePaths(self, root_path):
+    def generatePaths(self, root_path) -> None:
         """Generate imageglobs and contextglobs for a root path, setting
             self.imageglobs
             self.contextglobs
@@ -707,25 +704,25 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         logger.info("Context globs: %s", self.contextglobs)
         self.newFolderRoot = working_root_path  # Where we make new folders
 
-    def nextImage(self, event=None):  # noqa: ARG002
+    def nextImage(self, event=None) -> None:  # noqa: ARG002
         """Show the next image
         """
         self.image_index += 1
         self.imageUpdate("Next image")
 
-    def prevImage(self, event=None):  # noqa: ARG002
+    def prevImage(self, event=None) -> None:  # noqa: ARG002
         """Show the previous image
         """
         self.image_index -= 1
         self.imageUpdate("Prev image")
 
-    def gotoImage(self, index):
+    def gotoImage(self, index) -> None:
         """Go to an image (based on a seek event)
         """
         self.image_index = int(float(index))
         self.imageUpdate("Seek")
 
-    def imageUpdate(self, event=None):  # noqa: ARG002
+    def imageUpdate(self, event=None) -> None:  # noqa: ARG002
         """Update widgets to reflect a new selected image
         """
 
@@ -758,7 +755,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
     # Disk action
 
-    def keepImage(self, event=None):  # noqa: ARG002
+    def keepImage(self, event=None) -> None:  # noqa: ARG002
         """Summary
 
         Args:
@@ -768,14 +765,14 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         print("keepimage", keepdir)
         self.spool.enqueue(self.moveToFolder, (), {"new_folder_name": keepdir})
 
-    def addUnsortedToBase(self):
+    def addUnsortedToBase(self) -> None:
         os.makedirs(os.path.join(self.rootpath, "Unsorted"))
         self.openDir(os.path.realpath(self.rootpath))
 
-    def askDelete(self, event):  # noqa: ARG002
+    def askDelete(self, event) -> None:  # noqa: ARG002
         self.delete()
 
-    def fastDelete(self, event):  # noqa: ARG002
+    def fastDelete(self, event) -> None:  # noqa: ARG002
         self.delete(preconfirmed=True)
 
     def delete(self, preconfirmed=False) -> None:
@@ -828,7 +825,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         self._dorename(entry + '_' + old_plain)
         event.widget.delete(0, last=tk.END)
 
-    def dorename(self, event):
+    def dorename(self, event) -> None:
         """Rename current file."""
         entry = event.widget.get()
         if entry == "":  # noqa: PLC1901
@@ -932,7 +929,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
 
         # self.frame_sidebar.reFocusEntry()
 
-    def doUndo(self, event):  # noqa: ARG002
+    def doUndo(self, event) -> None:  # noqa: ARG002
         """Process an undo operation, handling the stack.
         """
         if len(self.undo) == 0:
@@ -945,7 +942,7 @@ class FileSorter(tk.Tk):  # noqa: PLR0904
         self.imageUpdate("Undo operation")
 
 
-def main():
+def main() -> None:
     try:
         ap = argparse.ArgumentParser()
         ap.add_argument(

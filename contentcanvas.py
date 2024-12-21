@@ -9,7 +9,7 @@ from PIL import ExifTags
 import cv2
 
 import os
-import subprocess
+import subprocess  # noqa: S404
 from threading import Lock
 from tkinter import filedialog
 import collections
@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 IMAGEEXTS = ["png", "jpg", "gif", "bmp", "jpeg", "tif", "gifv", "jfif"]
 VIDEOEXTS = ["webm", "mp4", "mov", "webp"]
+SUPPORTED_EXTS = ['zip', 'pdf', *IMAGEEXTS, *VIDEOEXTS]
+
 _IMAGEEXTS = ["." + e for e in IMAGEEXTS]
 _VIDEOEXTS = ["." + e for e in VIDEOEXTS]
 
@@ -80,7 +82,7 @@ def bytes_to_string(value: int, units=('B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'),
 
 
 def send_to_clipboard(clip_type, data) -> None:
-    import win32clipboard
+    import win32clipboard  # noqa: PLC0415
     win32clipboard.OpenClipboard()
     win32clipboard.EmptyClipboard()
     win32clipboard.SetClipboardData(clip_type, data)
@@ -88,7 +90,7 @@ def send_to_clipboard(clip_type, data) -> None:
 
 
 def copy_imdata_to_clipboard(filepath) -> None:
-    import win32clipboard
+    import win32clipboard  # noqa: PLC0415
 
     image = Image.open(filepath)
 
@@ -101,11 +103,31 @@ def copy_imdata_to_clipboard(filepath) -> None:
 
 
 def copy_text_to_clipboard(text) -> None:
-    import win32clipboard
+    import win32clipboard  # noqa: PLC0415
     win32clipboard.OpenClipboard()
     win32clipboard.EmptyClipboard()
     win32clipboard.SetClipboardText(text, win32clipboard.CF_TEXT)
     win32clipboard.CloseClipboard()
+
+
+def makeTextFromPdf(filepath: str) -> str:
+    text: str = ""
+    try:
+        import pikepdf  # noqa: PLC0415
+
+        with pikepdf.open(filepath) as pdf:
+            for key, value in pdf.docinfo.items():
+                try:
+                    text += f"\n{key}:\t{value}"
+                except NotImplementedError:
+                    text += f"\n{key}:\t{value!r}"
+
+    except ImportError:
+        text += "\nImportError: pikepdf not installed"
+    except Exception as e:
+        text += f"\npikepdf {type(e)}: {e}"
+
+    return text
 
 
 class ContentCanvas(tk.Canvas):
@@ -148,7 +170,8 @@ class ContentCanvas(tk.Canvas):
         # create a menu
         popup = tk.Menu(self, tearoff=0)
         try:
-            import win32clipboard
+            # Try import to verify availability
+            import win32clipboard  # noqa: PLC0415
             popup.add_command(label="Copy image", command=lambda: copy_imdata_to_clipboard(self.current_file))  # , command=next) etc...
             popup.add_command(label="Copy path", command=lambda: copy_text_to_clipboard(self.current_file))  # , command=next) etc...
         except ImportError:
@@ -171,14 +194,13 @@ class ContentCanvas(tk.Canvas):
         self.bind("<Button-3>", do_popup)
 
     def open_file_location(self) -> None:
-        windir: str = os.getenv('WINDIR')  # type: ignore[assignment]
-        FILEBROWSER_PATH = os.path.join(windir, 'explorer.exe')
+        filebrowser_path = os.path.join(os.getenv('WINDIR'), 'explorer.exe')  # type: ignore[arg-type]
         path = os.path.normpath(self.current_file)
 
         if os.path.isdir(path):
-            subprocess.run([FILEBROWSER_PATH, path])
+            subprocess.run([filebrowser_path, path], check=False)  # noqa: S603
         elif os.path.isfile(path):
-            subprocess.run([FILEBROWSER_PATH, '/select,', os.path.normpath(path)])
+            subprocess.run([filebrowser_path, '/select,', os.path.normpath(path)], check=False)  # noqa: S603
 
     def save_a_copy(self) -> None:
         new_file_name = filedialog.asksaveasfilename(
@@ -215,11 +237,6 @@ class ContentCanvas(tk.Canvas):
         # logger.debug(f"Removing dirtied cache item {entry}")
         self.photoImageCache.pop(entry, None)
         self.textCache.pop(entry, None)
-
-    def markAllDirty(self):
-        # logger.debug("Clearing photoimage cache (all dirty)")
-        self.photoImageCache.clear()
-        self.textCache.clear()
 
     def clear(self):
         self.itemconfig(self.photoimage, image=None)
@@ -297,32 +314,7 @@ class ContentCanvas(tk.Canvas):
 
             _filename, fileext = os.path.splitext(filepath)
             if fileext.lower() == ".pdf":
-                try:
-                    # from pdfminer.pdfparser import PDFParser
-                    # from pdfminer.pdfdocument import PDFDocument
-
-                    # def decodePdfVal(value):
-                    #     try:
-                    #         if "decode" in dir(value):
-                    #             return value.decode(errors="replace")
-                    #         elif "resolve" in dir(value):
-                    #             return value.resolve().decode(errors="replace")
-                    #     except Exception as e:
-                    #         print(e)
-                    #         return value
-                    import pikepdf
-
-                    with pikepdf.open(filepath) as pdf:
-                        for key, value in pdf.docinfo.items():
-                            try:
-                                text += f"\n{key}:\t{value}"
-                            except NotImplementedError:
-                                text += f"\n{key}:\t{value!r}"
-
-                except ImportError:
-                    text += f"\nImportError: pikepdf not installed"
-                except Exception as e:
-                    text += f"\npikepdf {type(e)}: {e}"
+                text += makeTextFromPdf(filepath)
 
             if fileext.lower() == ".zip":
                 with zipfile.ZipFile(filepath, 'r') as fp:
@@ -330,7 +322,7 @@ class ContentCanvas(tk.Canvas):
 
             if os.name == "nt":
                 try:
-                    from snip.win32_fileprops import property_sets
+                    from win32_fileprops import property_sets  # noqa: PLC0415
                     for name, properties in property_sets(filepath):
                         text += f"\nWin32 {name}"
                         for key, value in properties.items():
@@ -340,22 +332,16 @@ class ContentCanvas(tk.Canvas):
                     text += f"\n{e}"
 
             try:
-                with open(filepath, "r") as fp:
+                with open(filepath, "r", encoding='utf-8') as fp:
                     text += f"\n{fp.read(5000)}"  # 5 kb
             except Exception as e:
                 print(e)
-                pass
 
         self.textCache[filepath] = text
         return text
 
-    # def makePhotoImage(self, filename, ALWAYS_RESIZE=True, stepsize=4):
-    #     with snip.math.timer("makePhotoImage {}".format(filename)):
-    #         _makePhotoImage(self, filename, ALWAYS_RESIZE, stepsize)
-
-    # def _makePhotoImage(self, filename, ALWAYS_RESIZE=True, stepsize=4):
-
-    def placeholderImage(self) -> Image.Image:
+    @staticmethod
+    def placeholderImage() -> Image.Image:
         pilimg = Image.new('RGB', (10, 10), color=(0, 0, 0))
         ImageDraw.Draw(pilimg).text((2, 0), "?", fill=(255, 255, 255))
         return pilimg
@@ -371,8 +357,9 @@ class ContentCanvas(tk.Canvas):
 
         return self.getInfoLabelForFile(self.current_file)
 
+    @staticmethod
     @functools.lru_cache()
-    def getInfoLabelForFile(self, filepath) -> str:
+    def getInfoLabelForFile(filepath) -> str:
         __, fileext = os.path.splitext(filepath)
         prettyname: str = filepath  # Fallback 2
         try:
@@ -395,7 +382,7 @@ class ContentCanvas(tk.Canvas):
             elif fileext.lower() in _VIDEOEXTS:
                 capture = cv2.VideoCapture(filepath)
                 capture.grab()
-                flag, frame = capture.retrieve()
+                _flag, frame = capture.retrieve()
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pilimg = Image.fromarray(frame)
 
@@ -412,7 +399,7 @@ class ContentCanvas(tk.Canvas):
 
         return prettyname
 
-    def makePhotoImage(self, filename, ALWAYS_RESIZE=True, stepsize=4) -> typing.Optional[ImageTk.PhotoImage]:
+    def makePhotoImage(self, filename, always_resize=True, stepsize=4) -> typing.Optional[ImageTk.PhotoImage]:
         """Make a resized photoimage given a filepath
 
         Args:
@@ -429,7 +416,7 @@ class ContentCanvas(tk.Canvas):
         maxheight = self.winfo_height()
         # Let window load
         if maxwidth <= 1 or maxheight <= 1:
-            self.after(200, self.makePhotoImage, filename, ALWAYS_RESIZE, stepsize)
+            self.after(200, self.makePhotoImage, filename, always_resize, stepsize)
             # logger.debug("Window not initialized, waiting")
             return None
 
@@ -456,7 +443,7 @@ class ContentCanvas(tk.Canvas):
                 pilimg = Image.fromarray(frame)
             else:
                 raise OSError("Exception reading image")
-        except (cv2.error, OSError,):
+        except (cv2.error, OSError):
             pilimg = self.placeholderImage()
 
         # For full support
@@ -502,14 +489,13 @@ class ContentCanvas(tk.Canvas):
             logger.debug(f"NOT {filename} to {ratio}x using method {method} (bad ratio)")
 
         # Add overlay to video files
-        pilimg_bak = pilimg
         try:
             if fileext.lower() in _VIDEOEXTS:
-                ImageDraw.Draw(pilimg).rectangle([(0, 0), (30, 14)], fill=(0, 0, 0))
+                ImageDraw.Draw(pilimg).rectangle([(0, 0), (30, 14)], fill=(0, 0, 0))  # type: ignore[arg-type]
                 ImageDraw.Draw(pilimg).text((2, 2), fileext.lower(), fill=(255, 255, 255))
 
             if (fileext.lower() in _IMAGEEXTS and framesInImage(filename) > 1):
-                ImageDraw.Draw(pilimg).rectangle([(0, 0), (30, 14)], fill=(0, 0, 0))
+                ImageDraw.Draw(pilimg).rectangle([(0, 0), (30, 14)], fill=(0, 0, 0))  # type: ignore[arg-type]
                 ImageDraw.Draw(pilimg).text((2, 2), str(framesInImage(filename)), fill=(255, 255, 255))
         except ValueError:
             traceback.print_exc()
@@ -521,15 +507,11 @@ class ContentCanvas(tk.Canvas):
         threading.Thread(target=self.pruneImageCache, name="pruneImageCache").start()
         return ImageTk.PhotoImage(pilimg)
 
-    def pruneImageCache(self, max_caches=6, max_memory_entries=100):
-        # while len(self.photoImageCaches) > max_caches:
-        #     bad_cache = list(self.photoImageCaches.keys())[0]
-        #     logger.info(f"Popping entire cache {bad_cache} ({len(self.photoImageCaches[bad_cache])} entries)")
-        #     self.photoImageCaches.pop(bad_cache)
+    def pruneImageCache(self, max_memory_entries=100):
         for cache in self.photoImageCaches.values():
             if len(cache) < max_memory_entries:
                 continue
             while len(cache) > max_memory_entries // 2:
-                dirty_item = list(cache.keys())[0]
+                dirty_item = next(iter(cache.keys()))
                 logger.info(f"Cache too big, removing entry {dirty_item}")
                 cache.pop(dirty_item)
