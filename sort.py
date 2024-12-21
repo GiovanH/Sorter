@@ -1,28 +1,28 @@
 import os
-
 import glob
-
+import logging
 import argparse
 import random
 import functools
 import collections
 import itertools
 import re
-
-import tkinter as tk
-
-from pysnip.snip import loom
-from pysnip.snip.stream import TriadLogger
-from pysnip.snip.tkit.contentcanvas import ContentCanvas
-from pysnip.snip import filesystem
+import hashlib
+import imagehash
 
 from PIL import Image
+
+import tkinter as tk
 from tkinter import filedialog
 from tkinter import messagebox
 
+import loom
+
 import pymaybe
 
+import filesystem
 import sbf
+from contentcanvas import ContentCanvas
 
 from typing import Callable, Any, Optional, Union
 
@@ -34,8 +34,7 @@ MATCHEXTS = IMAGEEXTS + VIDEOEXTS
 _MATCHEXTS = _IMAGEEXTS + _VIDEOEXTS
 
 MAX_TRASH_HISTORY = 32
-
-logger = TriadLogger(__name__)
+logger = logging.getLogger(__name__)
 
 FolderOption = collections.namedtuple("FolderOption", ["path", "label", "index"])
 UserBoolSetting = collections.namedtuple("UserBoolSetting", ["var", "label"])
@@ -65,7 +64,6 @@ def md5(path) -> str:
     Returns:
         str: MD5 hex digest
     """
-    import hashlib
     with open(path, 'rb') as afile:
         h = hashlib.md5()
         h.update(afile.read())
@@ -104,7 +102,6 @@ def fingerprintImage(image_path) -> str:
     Returns:
         str: imagehash perceptual hash
     """
-    import imagehash
     try:
         image = Image.open(image_path)
         proc_hash = str(imagehash.dhash(image, hash_size=10))
@@ -119,7 +116,7 @@ def cacheClearAll():
 
 
 @functools.lru_cache()
-def getMatches(query, collection, splitRegex=r'[\\ /_-]', fuzzy=False) -> MatchResults:
+def getMatches(query, collection, split_regex=r'[\\ /_-]', fuzzy=False) -> MatchResults:
     """
     >>> getMatches("dav ja", collection)
     MatchResults(all=[], resolved=None, unique=False)
@@ -145,10 +142,10 @@ def getMatches(query, collection, splitRegex=r'[\\ /_-]', fuzzy=False) -> MatchR
 
     @functools.lru_cache()
     def segs(q) -> list[str]:
-        return re.split(splitRegex, q)
+        return re.split(split_regex, q)
 
     query_segs: list[str] = segs(query)
-    offsetize = bool(re.match(splitRegex, query))
+    offsetize = bool(re.match(split_regex, query))
 
     # Construct list of (item, segs) tuples sorted by the length of segments
     grouped_item_segs: list[tuple[Any, list[str]]] = [(item, segs(item)) for item in collection]
@@ -189,7 +186,7 @@ def getMatches(query, collection, splitRegex=r'[\\ /_-]', fuzzy=False) -> MatchR
     return MatchResults(resolved=best, all=matches, unique=(len(matches) == 1))
 
 
-class FileSorter(tk.Tk):
+class FileSorter(tk.Tk):  # noqa: PLR0904
 
     """Summary
 
@@ -232,7 +229,7 @@ class FileSorter(tk.Tk):
             self.image_index = 0
             self.undo: list[Callable] = []
             self.filepaths: list[str] = []
-            self.image_ext_globs = image_ext_globs
+            self.image_ext_globs: list[str] = image_ext_globs
 
             self.prev_query: Optional[str] = None
 
@@ -259,19 +256,19 @@ class FileSorter(tk.Tk):
                     lambda items, keyfunc=keyfunc, orderb=orderb: sorted(items, key=keyfunc, reverse=orderb)
                 )
                 for (name, keyfunc) in [
-                    ("Alphabetical", str.lower,),
+                    ("Alphabetical", str.lower),
                     ("Integers", lambda f: list(map(int, re.findall(r'\d+', os.path.splitext(os.path.split(f)[1])[0])))[0]),
-                    ("File size", os.path.getsize,),
-                    ("Last modified", os.path.getmtime,),
-                    ("File type", lambda f: os.path.splitext(f)[1],),
-                    ("Image Dimensions", imageSize,),
-                    ("Image Height", lambda f: pymaybe.maybe(Image.open(f)).size[1].or_else(0),), # type: ignore
-                    ("Image Width", lambda f: pymaybe.maybe(Image.open(f)).size[0].or_else(0),), # type: ignore
-                    ("Procedural hash", fingerprintImage,),
+                    ("File size", os.path.getsize),
+                    ("Last modified", os.path.getmtime),
+                    ("File type", lambda f: os.path.splitext(f)[1]),
+                    ("Image Dimensions", imageSize),
+                    ("Image Height", lambda f: pymaybe.maybe(Image.open(f)).size[1].or_else(0)),  # type: ignore
+                    ("Image Width", lambda f: pymaybe.maybe(Image.open(f)).size[0].or_else(0)),  # type: ignore
+                    ("Procedural hash", fingerprintImage),
                     ("Random", lambda f: random.random())
                 ]
                 for (order, orderb) in [
-                    ("asc", False,), ("desc", True,)
+                    ("asc", False), ("desc", True)
                 ]
             }
 
@@ -411,7 +408,7 @@ class FileSorter(tk.Tk):
 
         logger.debug(newmatchglobs)
 
-        self.image_ext_globs: list[str] = newmatchglobs.split(", ")
+        self.image_ext_globs = newmatchglobs.split(", ")
         self.reloadDirContext()
         self.imageUpdate()
 
@@ -593,7 +590,7 @@ class FileSorter(tk.Tk):
 
         self.imageUpdate("Submit")
 
-    def getBestFolder(self, entry):
+    def getBestFolder(self, entry) -> FolderOption:
         """Wrapper around getBestFolders to find a single best folder.
 
         Args:
@@ -774,7 +771,7 @@ class FileSorter(tk.Tk):
     def fastDelete(self, event):
         self.delete(preconfirmed=True)
 
-    def delete(self, preconfirmed=False):
+    def delete(self, preconfirmed=False) -> None:
         """Delete the currently selected file
 
         Args:
@@ -808,7 +805,7 @@ class FileSorter(tk.Tk):
             self.canvas.markCacheDirty(file_to_delete)
             self.imageUpdate("File deleted")
 
-    def doPrefixRename(self, event):
+    def doPrefixRename(self, event) -> None:
         entry = event.widget.get()
         if entry == "":
             self.nextImage()
@@ -834,7 +831,7 @@ class FileSorter(tk.Tk):
         self._dorename(entry)
         event.widget.delete(0, last=tk.END)
 
-    def _dorename(self, new_file_name):
+    def _dorename(self, new_file_name) -> None:
         """Rename current file to new_file_name
         """
         if self.currentImagePath is None:
@@ -876,7 +873,7 @@ class FileSorter(tk.Tk):
         except FileExistsError:
             logger.error("Can't rename file %s: file exists", old_file_path, exc_info=True)
 
-    def moveToFolder(self, event=None, new_folder_name=""):
+    def moveToFolder(self, event=None, new_folder_name="") -> None:
         """Move the current image to a folder, which can be new.
         """
         if event:
